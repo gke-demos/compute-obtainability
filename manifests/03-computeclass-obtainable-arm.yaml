@@ -1,0 +1,32 @@
+apiVersion: cloud.google.com/v1
+kind: ComputeClass
+metadata:
+  name: obtainable-compute
+spec:
+  description: >-
+    Stage 2 Obtainability Ladder with Priority #1 unlocked to obtainable Google
+    Axion Arm64 (n4a) Spot, triggering Cross-Architecture Active Migration from
+    x86_64 (n4d) to aarch64 (n4a) with Architecture Taint Suppression.
+  nodePoolAutoCreation:
+    enabled: true
+  nodePoolConfig:
+    taintConfig:
+      architectureTaintBehavior: NONE
+  activeMigration:
+    optimizeRulePriority: true
+  autoscalingPolicy:
+    consolidationDelayMinutes: 1
+    consolidationThreshold: 70
+  priorities:
+    # Priority #1: Obtainable Google Axion Arm64 (n4a) Spot capacity.
+    # With optimizeRulePriority: true and architectureTaintBehavior: NONE, GKE
+    # provisions an untainted n4a node pool and actively migrates Pods from n4d.
+    - machineFamily: n4a
+      spot: true
+    # Priority #2: Secondary AMD EPYC x86_64 (n4d) Spot capacity.
+    - machineFamily: n4d
+      spot: true
+    # Priority #3: Last-resort Intel Emerald Rapids x86_64 (n4) On-Demand capacity.
+    - machineFamily: n4
+      spot: false
+  whenUnsatisfiable: DoNotScaleUp

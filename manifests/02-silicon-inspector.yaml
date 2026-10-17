@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: compute-obtainability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: silicon-inspector
+  namespace: compute-obtainability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: silicon-inspector-node-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: silicon-inspector-node-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: silicon-inspector-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: silicon-inspector
+    namespace: compute-obtainability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: silicon-inspector
+  namespace: compute-obtainability
+  labels:
+    app: silicon-inspector
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: silicon-inspector
+  template:
+    metadata:
+      labels:
+        app: silicon-inspector
+    spec:
+      serviceAccountName: silicon-inspector
+      terminationGracePeriodSeconds: 5
+      nodeSelector:
+        cloud.google.com/compute-class: obtainable-compute
+      containers:
+        - name: inspector
+          image: alpine:3.20
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -eu
+              METADATA_URL="http://metadata.google.internal/computeMetadata/v1/instance"
+              HDR="Metadata-Flavor: Google"
+
+              detect_cpu_model() {
+                model="$(grep -m1 '^model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^[[:space:]]*//' || true)"
+                if [ -n "${model}" ]; then
+                  printf "%s" "${model}"
+                  return
+                fi
+                impl="$(grep -m1 '^CPU implementer' /proc/cpuinfo 2>/dev/null | awk '{print $NF}' || true)"
+                part="$(grep -m1 '^CPU part' /proc/cpuinfo 2>/dev/null | awk '{print $NF}' || true)"
+                if [ "${impl}" = "0x41" ] && [ "${part}" = "0xd8e" ]; then
+                  printf "Google Axion (Arm Neoverse-N3 %s/%s)" "${impl}" "${part}"
+                elif [ "${impl}" = "0x41" ] && [ "${part}" = "0xd4f" ]; then
+                  printf "Google Axion (Arm Neoverse-V2 %s/%s)" "${impl}" "${part}"
+                elif [ -n "${impl}" ] || [ -n "${part}" ]; then
+                  printf "Arm64 (%s/%s)" "${impl:-unknown}" "${part:-unknown}"
+                else
+                  printf "unknown"
+                fi
+              }
+
+              detect_node_metadata() {
+                raw_mt="$(wget -qO- -T 2 --header="${HDR}" "${METADATA_URL}/machine-type" 2>/dev/null || true)"
+                raw_prov="$(wget -qO- -T 2 --header="${HDR}" "${METADATA_URL}/scheduling/provisioning-model" 2>/dev/null || true)"
+                raw_preempt="$(wget -qO- -T 2 --header="${HDR}" "${METADATA_URL}/scheduling/preemptible" 2>/dev/null || true)"
+
+                if [ -n "${raw_mt}" ]; then
+                  MACHINE_TYPE="${raw_mt##*/}"
+                else
+                  MACHINE_TYPE=""
+                fi
+
+                if [ -n "${raw_prov}" ]; then
+                  PROVISIONING="$(printf "%s" "${raw_prov}" | tr '[:upper:]' '[:lower:]')"
+                elif [ "${raw_preempt}" = "TRUE" ]; then
+                  PROVISIONING="spot"
+                elif [ "${raw_preempt}" = "FALSE" ]; then
+                  PROVISIONING="standard"
+                else
+                  PROVISIONING=""
+                fi
+
+                if [ -z "${MACHINE_TYPE}" ] || [ -z "${PROVISIONING}" ]; then
+                  TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null || true)"
+                  if [ -n "${TOKEN}" ] && [ -n "${NODE_NAME:-}" ]; then
+                    NODE_JSON="$(wget -qO- -T 3 --no-check-certificate \
+                      --header="Authorization: Bearer ${TOKEN}" \
+                      "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}/api/v1/nodes/${NODE_NAME}" 2>/dev/null || true)"
+                    if [ -z "${MACHINE_TYPE}" ] && [ -n "${NODE_JSON}" ]; then
+                      MACHINE_TYPE="$(printf "%s" "${NODE_JSON}" | tr ',' '\n' | grep '"node.kubernetes.io/instance-type"' | head -n1 | cut -d'"' -f4 || true)"
+                    fi
+                    if [ -z "${PROVISIONING}" ] && [ -n "${NODE_JSON}" ]; then
+                      spot_val="$(printf "%s" "${NODE_JSON}" | tr ',' '\n' | grep '"cloud.google.com/gke-spot"' | head -n1 | cut -d'"' -f4 || true)"
+                      if [ "${spot_val}" = "true" ]; then
+                        PROVISIONING="spot"
+                      elif [ -n "${spot_val}" ]; then
+                        PROVISIONING="standard"
+                      fi
+                    fi
+                  fi
+                fi
+
+                MACHINE_TYPE="${MACHINE_TYPE:-unknown}"
+                PROVISIONING="${PROVISIONING:-unknown}"
+              }
+
+              while true; do
+                ARCH="$(uname -m)"
+                CPU_MODEL="$(detect_cpu_model)"
+                detect_node_metadata
+
+                cat <<EOF >/tmp/silicon-report.tmp
+              POD_NAME=${POD_NAME}
+              NODE_NAME=${NODE_NAME}
+              ARCH=${ARCH}
+              MACHINE_TYPE=${MACHINE_TYPE}
+              PROVISIONING=${PROVISIONING}
+              CPU_MODEL=${CPU_MODEL}
+              EOF
+                mv /tmp/silicon-report.tmp /tmp/silicon-report
+
+                printf "[%s] POD_NAME=%s NODE_NAME=%s ARCH=%s MACHINE_TYPE=%s PROVISIONING=%s CPU_MODEL=\"%s\"\n" \
+                  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  "${POD_NAME}" "${NODE_NAME}" "${ARCH}" "${MACHINE_TYPE}" "${PROVISIONING}" "${CPU_MODEL}"
+                sleep 10
+              done
