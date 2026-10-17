@@ -295,6 +295,6 @@ fi
 
 while true; do
   out="$(render_snapshot)"
-  printf '\033[H\033[2J%s\n' "${out}"
+  printf '\033[H\033[2J%s' "${out}"
   sleep "${WATCH_INTERVAL}"
 done
