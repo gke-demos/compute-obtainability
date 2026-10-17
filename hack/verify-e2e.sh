@@ -13,9 +13,9 @@ LOG_TIMESTAMP="true"
 # shellcheck source=hack/lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-STAGE1_CC="${REPO_ROOT}/manifests/01-computeclass-fallback.yaml"
-APP_MANIFEST="${REPO_ROOT}/manifests/02-silicon-inspector.yaml"
-STAGE2_CC="${REPO_ROOT}/manifests/03-computeclass-obtainable-arm.yaml"
+STAGE1_CC="${REPO_ROOT}/manifests/01-multi-arch/01-computeclass-fallback.yaml"
+APP_MANIFEST="${REPO_ROOT}/manifests/01-multi-arch/02-silicon-inspector.yaml"
+STAGE2_CC="${REPO_ROOT}/manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml"
 MAKEFILE_PATH="${REPO_ROOT}/Makefile"
 WATCH_SCRIPT="${REPO_ROOT}/hack/watch.sh"
 
@@ -31,7 +31,7 @@ log "Step 2: Checking public terminology hygiene across manifests, Makefile, and
 check_no_banned_terms "${REPO_ROOT}/manifests/" "${MAKEFILE_PATH}" "${WATCH_SCRIPT}" "${STAGE2_CC}"
 pass "All files use canonical Compute Obtainability terminology."
 
-log "Step 3: Validating Stage 2 ComputeClass manifest (manifests/03-computeclass-obtainable-arm.yaml) and Makefile targets..."
+log "Step 3: Validating Stage 2 ComputeClass manifest (manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml) and Makefile targets..."
 assert_computeclass_schema "${STAGE2_CC}" "stage2"
 python3 - "${MAKEFILE_PATH}" <<'PY'
 import sys

@@ -42,11 +42,11 @@ flowchart LR
   N4D -.->|"defrag-candidate -> drain"| N4A
 ```
 
-**Stage 1 (`manifests/01-computeclass-fallback.yaml`).** Priority #1 asks for Google Axion Arm64 (`machineFamily: n4a`) with `reservations.affinity: AnyThenFail`. Because our test project has no `n4a` reservation, Cluster Autoscaler evaluates Priority #1, fails fast instead of billing On-Demand `n4a`, and falls back to Priority #2 (`machineFamily: n4d`, `spot: true`). GKE auto-creates an AMD EPYC `n4d` Spot node pool and schedules our **Silicon Inspector** Pods on `x86_64`.
+**Stage 1 (`manifests/01-multi-arch/01-computeclass-fallback.yaml`).** Priority #1 asks for Google Axion Arm64 (`machineFamily: n4a`) with `reservations.affinity: AnyThenFail`. Because our test project has no `n4a` reservation, Cluster Autoscaler evaluates Priority #1, fails fast instead of billing On-Demand `n4a`, and falls back to Priority #2 (`machineFamily: n4d`, `spot: true`). GKE auto-creates an AMD EPYC `n4d` Spot node pool and schedules our **Silicon Inspector** Pods on `x86_64`.
 
-**Silicon Inspector (`manifests/02-silicon-inspector.yaml`).** A 2-replica `alpine:3.20` Deployment selects `cloud.google.com/compute-class: obtainable-compute` with zero `tolerations` and zero `kubernetes.io/arch` selectors. Every 10 seconds, each Pod inspects `uname -m`, `/proc/cpuinfo`, and its node metadata to log the live CPU instruction set (`x86_64` vs `aarch64`), GCE machine type, provisioning model, and silicon model name.
+**Silicon Inspector (`manifests/01-multi-arch/02-silicon-inspector.yaml`).** A 2-replica `alpine:3.20` Deployment selects `cloud.google.com/compute-class: obtainable-compute` with zero `tolerations` and zero `kubernetes.io/arch` selectors. Every 10 seconds, each Pod inspects `uname -m`, `/proc/cpuinfo`, and its node metadata to log the live CPU instruction set (`x86_64` vs `aarch64`), GCE machine type, provisioning model, and silicon model name.
 
-**Stage 2 (`manifests/03-computeclass-obtainable-arm.yaml`).** Running `make unlock-arm` updates Priority #1 of `ComputeClass/obtainable-compute` in place to obtainable Google Axion Arm64 Spot (`machineFamily: n4a`, `spot: true`). Without touching `Deployment/silicon-inspector`, GKE's **Active Migration** loop provisions an `n4a` Arm64 node pool with **Architecture Taint Suppression**, cordons and drains the `n4d` x86_64 node, and moves both Pods onto `aarch64`.
+**Stage 2 (`manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`).** Running `make unlock-arm` updates Priority #1 of `ComputeClass/obtainable-compute` in place to obtainable Google Axion Arm64 Spot (`machineFamily: n4a`, `spot: true`). Without touching `Deployment/silicon-inspector`, GKE's **Active Migration** loop provisions an `n4a` Arm64 node pool with **Architecture Taint Suppression**, cordons and drains the `n4d` x86_64 node, and moves both Pods onto `aarch64`.
 
 ## Follow along on your own cluster
 
@@ -61,7 +61,7 @@ cd gke-design-for-obtainability
 
 ### Step 1: Deploy the Stage 1 Obtainability Ladder and Silicon Inspector
 
-First, look at `manifests/01-computeclass-fallback.yaml`:
+First, look at `manifests/01-multi-arch/01-computeclass-fallback.yaml`:
 
 ```yaml
 apiVersion: cloud.google.com/v1
@@ -98,7 +98,7 @@ spec:
   whenUnsatisfiable: DoNotScaleUp
 ```
 
-Next, check the Pod template in `manifests/02-silicon-inspector.yaml`. Notice that it only sets `nodeSelector: { cloud.google.com/compute-class: obtainable-compute }` and includes no `tolerations`:
+Next, check the Pod template in `manifests/01-multi-arch/02-silicon-inspector.yaml`. Notice that it only sets `nodeSelector: { cloud.google.com/compute-class: obtainable-compute }` and includes no `tolerations`:
 
 ```yaml
 apiVersion: apps/v1
@@ -147,7 +147,7 @@ Once Stage 1 scale-up completes, you will see `gke-ate-cluster-nap-n4d-highcpu-2
 
 ### Step 3: Unlock Priority #1 Google Axion Arm64 (`make unlock-arm`)
 
-Now inspect `manifests/03-computeclass-obtainable-arm.yaml`, which promotes obtainable Google Axion Arm64 Spot (`machineFamily: n4a`, `spot: true`) to Priority #1:
+Now inspect `manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`, which promotes obtainable Google Axion Arm64 Spot (`machineFamily: n4a`, `spot: true`) to Priority #1:
 
 ```yaml
   priorities:
@@ -180,11 +180,11 @@ make clean
 
 ## Live demo on GKE 1.37
 
-If you do not have a cluster handy, the recording below captures a full run on a live GKE `v1.37.0-gke.3503000` cluster (`gke_mofilabs_us-central1-a_ate-cluster`). The top pane runs the live `make watch` observer while the bottom pane inspects `ComputeClass/obtainable-compute` and streams `make logs` (`ARCH=x86_64 MACHINE_TYPE=n4d-highcpu-2 PROVISIONING=spot CPU="AMD EPYC 9B45"` on node `gke-ate-cluster-nap-n4d-highcpu-2-spo-f29f397e-t7h9`), runs `make unlock-arm` (`kubectl apply -f manifests/03-computeclass-obtainable-arm.yaml`), watches **Active Migration** provision two `n4a-highcpu-1` (`arm64`) Spot nodes (`cx7k` and `jcpx`) with **Architecture Taint Suppression** (`no arm64 taint`) and cordon/drain the `n4d` node (`defrag-candidate, ToBeDeletedByCA`), and runs `make logs` again to confirm both Pods are running on Google Axion (`ARCH=aarch64 MACHINE_TYPE=n4a-highcpu-1 PROVISIONING=spot CPU="Google Axion (Arm Neoverse-N3 0x41/0xd8e)"`).
+If you do not have a cluster handy, the recording below captures a full run on a live GKE `v1.37.0-gke.3503000` cluster (`gke_mofilabs_us-central1-a_ate-cluster`). The top pane runs the live `make watch` observer while the bottom pane inspects `ComputeClass/obtainable-compute` and streams `make logs` (`ARCH=x86_64 MACHINE_TYPE=n4d-highcpu-2 PROVISIONING=spot CPU="AMD EPYC 9B45"` on node `gke-ate-cluster-nap-n4d-highcpu-2-spo-f29f397e-t7h9`), runs `make unlock-arm` (`kubectl apply -f manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`), watches **Active Migration** provision two `n4a-highcpu-1` (`arm64`) Spot nodes (`cx7k` and `jcpx`) with **Architecture Taint Suppression** (`no arm64 taint`) and cordon/drain the `n4d` node (`defrag-candidate, ToBeDeletedByCA`), and runs `make logs` again to confirm both Pods are running on Google Axion (`ARCH=aarch64 MACHINE_TYPE=n4a-highcpu-1 PROVISIONING=spot CPU="Google Axion (Arm Neoverse-N3 0x41/0xd8e)"`).
 
-![GKE 1.37 Designing for Obtainability Live Demo](assets/demo.gif)
+![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)
 
-*Watch the high-resolution MP4 recording: [assets/demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/demo.mp4)*
+*Watch the high-resolution MP4 recording: [assets/01-multi-arch-demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/01-multi-arch-demo.mp4)*
 
 | Phase | Timestamp (UTC) | Elapsed from `make unlock-arm` | Active Node(s) | Node Taints | `silicon-inspector` `uname -m` & Silicon |
 | :--- | :--- | :--- | :--- | :--- | :--- |

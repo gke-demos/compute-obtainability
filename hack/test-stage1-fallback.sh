@@ -12,8 +12,8 @@ LOG_PREFIX="stage1-test"
 # shellcheck source=hack/lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-CC_MANIFEST="${REPO_ROOT}/manifests/01-computeclass-fallback.yaml"
-APP_MANIFEST="${REPO_ROOT}/manifests/02-silicon-inspector.yaml"
+CC_MANIFEST="${REPO_ROOT}/manifests/01-multi-arch/01-computeclass-fallback.yaml"
+APP_MANIFEST="${REPO_ROOT}/manifests/01-multi-arch/02-silicon-inspector.yaml"
 
 log "Step 1: Checking Stage 1 manifests exist..."
 [[ -f "${CC_MANIFEST}" ]] || fail "Missing manifest: ${CC_MANIFEST}"

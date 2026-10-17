@@ -1,0 +1,29 @@
+apiVersion: cloud.google.com/v1
+kind: ComputeClass
+metadata:
+  name: obtainable-stateful
+spec:
+  description: >-
+    Stage 1 Cross-Generation Stateful Obtainability Ladder preferring Gen 4
+    (n4d with Fail-Fast Reservation Affinity) and falling back to Gen 3 (n2d
+    Spot, n2 On-Demand) paired with StorageClass/dynamic-rwo.
+  nodePoolAutoCreation:
+    enabled: true
+  activeMigration:
+    optimizeRulePriority: true
+  autoscalingPolicy:
+    consolidationDelayMinutes: 1
+    consolidationThreshold: 70
+  priorities:
+    # Priority #1: Claim an existing 4th-Gen AMD EPYC (n4d, Hyperdisk-only) reservation
+    # if available; otherwise fail fast (AnyThenFail) instead of billing On-Demand n4d.
+    - machineFamily: n4d
+      reservations:
+        affinity: AnyThenFail
+    # Priority #2: Fall back to obtainable 3rd-Gen AMD EPYC (n2d, Persistent Disk) Spot capacity.
+    - machineFamily: n2d
+      spot: true
+    # Priority #3: Last-resort 3rd-Gen Intel (n2, Persistent Disk) On-Demand capacity.
+    - machineFamily: n2
+      spot: false
+  whenUnsatisfiable: DoNotScaleUp
