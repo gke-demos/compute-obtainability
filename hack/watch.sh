@@ -99,17 +99,17 @@ else:
 
     print(
         f"  Health: {h_color}{health_status}{RESET} ({health_msg}) | "
-        f"architectureTaintBehavior: {GREEN}{arch_taint}{RESET} | "
+        f"archTaint: {GREEN}{arch_taint}{RESET} | "
         f"optimizeRulePriority: {GREEN}{active_mig}{RESET} | "
-        f"nodePoolAutoCreation: {GREEN}{auto_create}{RESET} | "
+        f"autoCreate: {GREEN}{auto_create}{RESET} | "
         f"consolidation: {consol_delay}m/{consol_thresh}%"
     )
 
     family_meta = {
-        "n4a": ("arm64 / aarch64", "Google Axion (Arm Neoverse-N3)"),
-        "c4a": ("arm64 / aarch64", "Google Axion (Arm Neoverse-V2)"),
-        "n4d": ("amd64 / x86_64", "AMD EPYC Turin"),
-        "n4": ("amd64 / x86_64", "Intel Emerald Rapids"),
+        "n4a": ("arm64 / aarch64", "Google Axion Neoverse-N3"),
+        "c4a": ("arm64 / aarch64", "Google Axion Neoverse-V2"),
+        "n4d": ("amd64 / x86_64 ", "AMD EPYC Turin (9B45)   "),
+        "n4":  ("amd64 / x86_64 ", "Intel Emerald Rapids    "),
     }
     priorities = spec.get("priorities", [])
     for idx, p in enumerate(priorities, start=1):
@@ -117,12 +117,12 @@ else:
         arch_desc, cpu_desc = family_meta.get(fam, ("unknown", "unknown"))
         if "reservations" in p:
             aff = p["reservations"].get("affinity", "Unknown")
-            mode = f"{YELLOW}reservations.affinity={aff}{RESET} (Fail-Fast Reservation Affinity)"
+            mode = f"{YELLOW}reservations.affinity={aff}{RESET} (Fail-Fast)"
         elif p.get("spot") is True:
             mode = f"{GREEN}spot=true{RESET} (Obtainable Spot VM)"
         else:
             mode = f"spot=false (On-Demand Fallback)"
-        print(f"  Priority #{idx}: machineFamily={BOLD}{fam:<4}{RESET} [{arch_desc} - {cpu_desc}] -> {mode}")
+        print(f"  Priority #{idx}: machineFamily={BOLD}{fam:<4}{RESET} [{arch_desc} | {cpu_desc}] -> {mode}")
     print()
 
 # Section 2: Obtainable-Compute Nodes
@@ -130,7 +130,7 @@ print(f"{BOLD}[2] Obtainable-Compute Nodes (-l cloud.google.com/compute-class=ob
 if not nodes:
     print(f"  {YELLOW}No obtainable-compute nodes currently provisioned{RESET}\n")
 else:
-    header = f"  {'NODE':<56} {'STATUS':<20} {'ARCH':<8} {'INSTANCE-TYPE':<16} {'SPOT':<6} {'TAINTS'}"
+    header = f"  {'NODE':<51} {'STATUS':<14} {'ARCH':<5} {'INSTANCE-TYPE':<13} {'SPOT':<4} {'TAINTS'}"
     print(f"{DIM}{header}{RESET}")
     for n in nodes:
         name = n["metadata"]["name"]
@@ -141,15 +141,29 @@ else:
         conds = {c["type"]: c["status"] for c in n.get("status", {}).get("conditions", [])}
         status = "Ready" if conds.get("Ready") == "True" else "NotReady"
         if n.get("spec", {}).get("unschedulable"):
-            status += ",SchedulingDisabled"
+            status = "Ready,Cordoned" if status == "Ready" else "NotReady,Cordoned"
         taints = n.get("spec", {}).get("taints", [])
-        taint_strs = [f"{t.get('key')}={t.get('value', '')}:{t.get('effect')}" for t in taints]
+        short_taints = []
+        for t in taints:
+            k = t.get("key", "")
+            v = t.get("value", "")
+            eff = t.get("effect", "")
+            if k == "cloud.google.com/compute-class":
+                short_taints.append(f"compute-class:{eff}")
+            elif k == "autoscaling.gke.io/defrag-candidate":
+                short_taints.append("defrag-candidate")
+            elif k == "ToBeDeletedByClusterAutoscaler":
+                short_taints.append("ToBeDeletedByCA")
+            elif k in ("autoscaling.gke.io/defrag-soft-candidate", "node.kubernetes.io/unschedulable"):
+                continue
+            else:
+                short_taints.append(f"{k}={v}:{eff}")
         has_arch_taint = any(t.get("key") == "kubernetes.io/arch" for t in taints)
-        taint_summary = ", ".join(taint_strs) if taint_strs else "<none>"
+        taint_summary = ", ".join(short_taints) if short_taints else "<none>"
         if arch == "arm64" and not has_arch_taint:
-            taint_summary += f" {GREEN}(no arm64 arch taint){RESET}"
-        arch_col = f"{GREEN}{arch:<8}{RESET}" if arch == "arm64" else f"{YELLOW}{arch:<8}{RESET}"
-        print(f"  {name:<56} {status:<20} {arch_col} {itype:<16} {str(spot):<6} {taint_summary}")
+            taint_summary += f" {GREEN}(no arm64 taint){RESET}"
+        arch_col = f"{GREEN}{arch:<5}{RESET}" if arch == "arm64" else f"{YELLOW}{arch:<5}{RESET}"
+        print(f"  {name:<51} {status:<14} {arch_col} {itype:<13} {str(spot):<4} {taint_summary}")
     print()
 
 # Section 3: Silicon Inspector Pods
@@ -157,28 +171,29 @@ print(f"{BOLD}[3] Silicon Inspector Pods (Deployment/silicon-inspector in namesp
 if not pods:
     print(f"  {YELLOW}No silicon-inspector Pods found{RESET}")
 else:
-    header = f"  {'POD':<36} {'STATUS':<14} {'ARCH (uname -m)':<16} {'MACHINE-TYPE':<16} {'PROV':<8} {'NODE':<50} {'CPU-MODEL'}"
+    header = f"  {'POD':<34} {'STATUS':<7} {'ARCH':<7} {'MACHINE-TYPE':<13} {'PROV':<4} {'NODE':<16} {'CPU-MODEL'}"
     print(f"{DIM}{header}{RESET}")
     for p in pods:
         pname = p["metadata"]["name"]
         phase = p.get("status", {}).get("phase", "Unknown")
         if p["metadata"].get("deletionTimestamp"):
-            phase = "Terminating"
+            phase = "Term"
         nname = p.get("spec", {}).get("nodeName", "<pending>")
+        short_node = ("..." + nname[-13:]) if len(nname) > 16 else nname
         rep = reports.get(pname, {})
         u_arch = rep.get("ARCH", "-")
         mtype = rep.get("MACHINE_TYPE", "-")
-        prov = rep.get("PROVISIONING", "-")
+        prov = rep.get("PROV", rep.get("PROVISIONING", "-"))
         cpu_model = rep.get("CPU_MODEL", "-")
         if cpu_model == "Arm64 (0x41/0xd8e)":
             cpu_model = "Google Axion (Arm Neoverse-N3 0x41/0xd8e)"
         if u_arch == "aarch64":
-            arch_disp = f"{GREEN}{u_arch:<16}{RESET}"
+            arch_disp = f"{GREEN}{u_arch:<7}{RESET}"
         elif u_arch == "x86_64":
-            arch_disp = f"{YELLOW}{u_arch:<16}{RESET}"
+            arch_disp = f"{YELLOW}{u_arch:<7}{RESET}"
         else:
-            arch_disp = f"{u_arch:<16}"
-        print(f"  {pname:<36} {phase:<14} {arch_disp} {mtype:<16} {prov:<8} {nname:<50} {cpu_model}")
+            arch_disp = f"{u_arch:<7}"
+        print(f"  {pname:<34} {phase:<7} {arch_disp} {mtype:<13} {prov:<4} {short_node:<16} {cpu_model}")
 PY
 }
 
