@@ -85,7 +85,9 @@ spec:
                 fi
                 impl="$(grep -m1 '^CPU implementer' /proc/cpuinfo 2>/dev/null | awk '{print $NF}' || true)"
                 part="$(grep -m1 '^CPU part' /proc/cpuinfo 2>/dev/null | awk '{print $NF}' || true)"
-                if [ "${impl}" = "0x41" ] && [ "${part}" = "0xd4f" ]; then
+                if [ "${impl}" = "0x41" ] && [ "${part}" = "0xd8e" ]; then
+                  printf "Google Axion (Arm Neoverse-N3 %s/%s)" "${impl}" "${part}"
+                elif [ "${impl}" = "0x41" ] && [ "${part}" = "0xd4f" ]; then
                   printf "Google Axion (Arm Neoverse-V2 %s/%s)" "${impl}" "${part}"
                 elif [ -n "${impl}" ] || [ -n "${part}" ]; then
                   printf "Arm64 (%s/%s)" "${impl:-unknown}" "${part:-unknown}"
