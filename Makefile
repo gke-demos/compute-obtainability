@@ -4,7 +4,10 @@ COMPUTE_CLASS ?= obtainable-compute
 STATEFUL_NAMESPACE ?= obtainability-stateful
 STATEFUL_COMPUTE_CLASS ?= obtainable-stateful
 
-.PHONY: apply apply-multi-arch apply-stateful unlock-arm watch watch-multi-arch status logs verify clean clean-multi-arch clean-stateful
+.PHONY: apply apply-multi-arch apply-stateful unlock-arm unlock-gen4 \
+	watch watch-multi-arch watch-stateful status status-multi-arch status-stateful \
+	logs logs-multi-arch logs-stateful verify verify-multi-arch verify-stateful \
+	clean clean-multi-arch clean-stateful
 
 apply: apply-multi-arch
 
@@ -19,21 +22,43 @@ apply-stateful:
 unlock-arm:
 	kubectl --context="$(KUBE_CONTEXT)" apply -f manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml
 
+unlock-gen4:
+	kubectl --context="$(KUBE_CONTEXT)" apply -f manifests/02-stateful-storage/03-computeclass-obtainable-gen4.yaml
+	kubectl --context="$(KUBE_CONTEXT)" -n "$(STATEFUL_NAMESPACE)" scale statefulset/storage-inspector --replicas=2
+
 watch: watch-multi-arch
 
 watch-multi-arch:
 	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/watch.sh
 
-status:
+watch-stateful:
+	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/watch-stateful.sh
+
+status: status-multi-arch
+
+status-multi-arch:
 	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/watch.sh --once
 
-logs:
+status-stateful:
+	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/watch-stateful.sh --once
+
+logs: logs-multi-arch
+
+logs-multi-arch:
 	kubectl --context="$(KUBE_CONTEXT)" -n "$(NAMESPACE)" logs -l app=silicon-inspector --tail=4
 
-verify:
+logs-stateful:
+	kubectl --context="$(KUBE_CONTEXT)" -n "$(STATEFUL_NAMESPACE)" logs -l app=storage-inspector --tail=4
+
+verify: verify-multi-arch
+
+verify-multi-arch:
 	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/verify-e2e.sh
 
-clean: clean-multi-arch
+verify-stateful:
+	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/verify-stateful-e2e.sh
+
+clean: clean-multi-arch clean-stateful
 
 clean-multi-arch:
 	kubectl --context="$(KUBE_CONTEXT)" delete -f manifests/01-multi-arch/02-silicon-inspector.yaml --ignore-not-found=true
