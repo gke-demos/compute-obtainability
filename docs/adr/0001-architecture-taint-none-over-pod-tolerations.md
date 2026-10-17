@@ -16,4 +16,4 @@ We configure `spec.nodePoolConfig.taintConfig.architectureTaintBehavior: NONE` o
 ## Consequences
 
 - **Platform-owned obtainability**: Platform engineers can add Google Axion Arm64 (`n4a`, `c4a`) and x86 (`n4d`, `n4`) rules into a single `ComputeClass` Obtainability Ladder without editing application manifests.
-- **Safety boundary**: Only workloads that opt into the `obtainable-compute` `ComputeClass` (via `nodeSelector: { cloud.google.com/compute-class: obtainable-compute }` or namespace default) schedule onto these untainted Arm64 nodes, because GKE still applies the `cloud.google.com/compute-class=obtainable-compute:NoSchedule` taint and matching Pod toleration automatically.
+- **Safety boundary**: Only workloads that opt into the `obtainable-compute` `ComputeClass` (via `nodeSelector: { cloud.google.com/compute-class: obtainable-compute }` or namespace default) schedule onto these Arm64 nodes with Architecture Taint Suppression, because GKE still applies the `cloud.google.com/compute-class=obtainable-compute:NoSchedule` taint and matching Pod toleration automatically.

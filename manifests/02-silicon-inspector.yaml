@@ -99,6 +99,7 @@ spec:
               detect_node_metadata() {
                 raw_mt="$(wget -qO- -T 2 --header="${HDR}" "${METADATA_URL}/machine-type" 2>/dev/null || true)"
                 raw_prov="$(wget -qO- -T 2 --header="${HDR}" "${METADATA_URL}/scheduling/provisioning-model" 2>/dev/null || true)"
+                raw_preempt="$(wget -qO- -T 2 --header="${HDR}" "${METADATA_URL}/scheduling/preemptible" 2>/dev/null || true)"
 
                 if [ -n "${raw_mt}" ]; then
                   MACHINE_TYPE="${raw_mt##*/}"
@@ -108,6 +109,10 @@ spec:
 
                 if [ -n "${raw_prov}" ]; then
                   PROVISIONING="$(printf "%s" "${raw_prov}" | tr '[:upper:]' '[:lower:]')"
+                elif [ "${raw_preempt}" = "TRUE" ]; then
+                  PROVISIONING="spot"
+                elif [ "${raw_preempt}" = "FALSE" ]; then
+                  PROVISIONING="standard"
                 else
                   PROVISIONING=""
                 fi

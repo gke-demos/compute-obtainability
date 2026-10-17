@@ -18,7 +18,7 @@ During live verification on `gke_mofilabs_us-central1-a_ate-cluster`:
      - `autoscaling.gke.io/defrag-candidate=<epoch>:NoSchedule`
      - `autoscaling.gke.io/defrag-soft-candidate=<epoch>:PreferNoSchedule`
    - Simultaneously, Node Pool Auto-Creation provisions a Priority #1 Google Axion Arm64 (`n4a-highcpu-1`, `arm64` Spot) node pool (`CA[su=InProgress]`).
-3. **Untainted Arm64 Node Registration & Drain (`~162s - 192s`)**:
+3. **Arm64 Node Registration (Architecture Taint Suppression) & Drain (`~162s - 192s`)**:
    - At `+162s`, the `n4a-highcpu-1` (`arm64` Spot) node registers with `cloud.google.com/compute-class=obtainable-compute:NoSchedule` and **zero** `kubernetes.io/arch=arm64:NoSchedule` taint (`architectureTaintBehavior: NONE`).
    - At `+178s`, the `n4a-highcpu-1` nodes reach `Ready`, and Cluster Autoscaler cordons and drains the `n4d-highcpu-2` (`amd64`) node by applying `ToBeDeletedByClusterAutoscaler=<epoch>:NoSchedule` and `node.kubernetes.io/unschedulable=:NoSchedule` (`Ready,SchedulingDisabled`).
    - At `+192s`, both `silicon-inspector` Pods are `1/1 Running` on `n4a-highcpu-1` (`ARCH=aarch64`, `CPU implementer 0x41 / CPU part 0xd8e` Arm Neoverse-N3), and the drained `n4d` node is terminated.

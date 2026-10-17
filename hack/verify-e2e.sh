@@ -8,25 +8,16 @@ DEPLOYMENT="silicon-inspector"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOG_PREFIX="verify-e2e"
+LOG_TIMESTAMP="true"
+# shellcheck source=hack/lib.sh
+source "${SCRIPT_DIR}/lib.sh"
 
 STAGE1_CC="${REPO_ROOT}/manifests/01-computeclass-fallback.yaml"
 APP_MANIFEST="${REPO_ROOT}/manifests/02-silicon-inspector.yaml"
 STAGE2_CC="${REPO_ROOT}/manifests/03-computeclass-obtainable-arm.yaml"
 MAKEFILE_PATH="${REPO_ROOT}/Makefile"
 WATCH_SCRIPT="${REPO_ROOT}/hack/watch.sh"
-
-log() {
-  printf "\033[1;34m[verify-e2e %s]\033[0m %s\n" "$(date -u +%H:%M:%S)" "$*"
-}
-
-pass() {
-  printf "\033[1;32m[PASS]\033[0m %s\n" "$*"
-}
-
-fail() {
-  printf "\033[1;31m[FAIL]\033[0m %s\n" "$*" >&2
-  exit 1
-}
 
 log "Step 1: Checking required Stage 1 & Stage 2 artifacts exist..."
 [[ -f "${STAGE1_CC}" ]] || fail "Missing Stage 1 ComputeClass manifest: ${STAGE1_CC}"
@@ -37,48 +28,15 @@ log "Step 1: Checking required Stage 1 & Stage 2 artifacts exist..."
 pass "All required manifests, Makefile, and hack/watch.sh exist."
 
 log "Step 2: Checking public terminology hygiene across manifests, Makefile, and hack/..."
-BANNED_TERM="fluid"" compute"
-if grep -ri "${BANNED_TERM}" "${REPO_ROOT}/manifests/" "${MAKEFILE_PATH}" "${WATCH_SCRIPT}" "${STAGE2_CC}" >/dev/null 2>&1; then
-  fail "Found banned internal terminology in repository files"
-fi
+check_no_banned_terms "${REPO_ROOT}/manifests/" "${MAKEFILE_PATH}" "${WATCH_SCRIPT}" "${STAGE2_CC}"
 pass "All files use canonical Compute Obtainability terminology."
 
 log "Step 3: Validating Stage 2 ComputeClass manifest (manifests/03-computeclass-obtainable-arm.yaml) and Makefile targets..."
-python3 - "${STAGE2_CC}" "${MAKEFILE_PATH}" <<'PY'
+assert_computeclass_schema "${STAGE2_CC}" "stage2"
+python3 - "${MAKEFILE_PATH}" <<'PY'
 import sys
-import yaml
 
-cc_path, mk_path = sys.argv[1], sys.argv[2]
-
-with open(cc_path, "r", encoding="utf-8") as f:
-    docs = [d for d in yaml.safe_load_all(f) if d]
-
-assert len(docs) == 1, f"Expected 1 document in {cc_path}, got {len(docs)}"
-cc = docs[0]
-assert cc.get("apiVersion") == "cloud.google.com/v1", f"Unexpected apiVersion: {cc.get('apiVersion')}"
-assert cc.get("kind") == "ComputeClass", f"Unexpected kind: {cc.get('kind')}"
-assert cc.get("metadata", {}).get("name") == "obtainable-compute", "ComputeClass name must be obtainable-compute"
-
-spec = cc.get("spec", {})
-assert spec.get("nodePoolAutoCreation", {}).get("enabled") is True, "nodePoolAutoCreation.enabled must be true"
-assert (
-    spec.get("nodePoolConfig", {}).get("taintConfig", {}).get("architectureTaintBehavior") == "NONE"
-), "nodePoolConfig.taintConfig.architectureTaintBehavior must be NONE"
-assert (
-    spec.get("activeMigration", {}).get("optimizeRulePriority") is True
-), "activeMigration.optimizeRulePriority must be true"
-assert spec.get("whenUnsatisfiable") == "DoNotScaleUp", "whenUnsatisfiable must be DoNotScaleUp"
-
-priorities = spec.get("priorities", [])
-assert len(priorities) >= 3, f"Expected at least 3 priority rules, got {len(priorities)}"
-assert priorities[0].get("machineFamily") == "n4a", f"Priority #1 machineFamily must be n4a, got {priorities[0]}"
-assert priorities[0].get("spot") is True, f"Priority #1 spot must be True in Stage 2, got {priorities[0]}"
-assert "reservations" not in priorities[0], f"Priority #1 in Stage 2 must not require reservations, got {priorities[0]}"
-assert priorities[1].get("machineFamily") == "n4d", f"Priority #2 machineFamily must be n4d, got {priorities[1]}"
-assert priorities[1].get("spot") is True, f"Priority #2 spot must be True, got {priorities[1]}"
-assert priorities[2].get("machineFamily") == "n4", f"Priority #3 machineFamily must be n4, got {priorities[2]}"
-assert priorities[2].get("spot") is False, f"Priority #3 spot must be False, got {priorities[2]}"
-
+mk_path = sys.argv[1]
 with open(mk_path, "r", encoding="utf-8") as f:
     mk_text = f.read()
 
@@ -199,7 +157,15 @@ for n in nodes:
                 sys.exit(0)
     elif arch == "amd64":
         n4d_nodes.append(f"{name}(unsched={unsched})")
-    node_parts.append(f"{name}[{arch},{itype},ready={ready},unsched={unsched}]")
+    taint_markers = []
+    for t in taints:
+        k = t.get("key", "")
+        if k == "autoscaling.gke.io/defrag-candidate":
+            taint_markers.append("defrag-candidate")
+        elif k == "ToBeDeletedByClusterAutoscaler":
+            taint_markers.append("ToBeDeletedByCA")
+    taint_suffix = f",taints={','.join(taint_markers)}" if taint_markers else ""
+    node_parts.append(f"{name}[{arch},{itype},ready={ready},unsched={unsched}{taint_suffix}]")
 
 running_arm_pods = 0
 pod_parts = []
@@ -282,34 +248,8 @@ POST_DEPLOY_SPEC="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" get de
 [[ "${PRE_DEPLOY_SPEC}" == "${POST_DEPLOY_SPEC}" ]] || fail "Deployment Pod template spec changed!"
 pass "Deployment/${DEPLOYMENT} confirmed unmodified (generation=${POST_DEPLOY_GEN}, zero tolerations)."
 
-PODS="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" get pods -l app=silicon-inspector --field-selector=status.phase=Running -o jsonpath='{.items[*].metadata.name}')"
-POD_COUNT=0
-for pod in ${PODS}; do
-  POD_COUNT=$((POD_COUNT + 1))
-  REPORT=""
-  for _ in {1..15}; do
-    if REPORT="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" exec "${pod}" -- cat /tmp/silicon-report 2>/dev/null)" && [[ -n "${REPORT}" ]]; then
-      break
-    fi
-    sleep 2
-  done
-  [[ -n "${REPORT}" ]] || fail "Pod ${pod} did not write /tmp/silicon-report"
-  echo "--- ${pod} /tmp/silicon-report ---"
-  echo "${REPORT}"
-  grep -q "^ARCH=aarch64$" <<<"${REPORT}" || fail "Pod ${pod} report missing ARCH=aarch64"
-  grep -q "^MACHINE_TYPE=n4a-" <<<"${REPORT}" || fail "Pod ${pod} report missing MACHINE_TYPE=n4a-*"
-  grep -q "^PROVISIONING=spot$" <<<"${REPORT}" || fail "Pod ${pod} report missing PROVISIONING=spot"
-
-  LOGS="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" logs "${pod}" --tail=5)"
-  echo "--- ${pod} stdout logs ---"
-  echo "${LOGS}"
-  grep -q "ARCH=aarch64" <<<"${LOGS}" || fail "Pod ${pod} stdout logs missing ARCH=aarch64"
-  grep -q "MACHINE_TYPE=n4a-" <<<"${LOGS}" || fail "Pod ${pod} stdout logs missing MACHINE_TYPE=n4a-*"
-  grep -q "PROVISIONING=spot" <<<"${LOGS}" || fail "Pod ${pod} stdout logs missing PROVISIONING=spot"
-done
-
-[[ "${POD_COUNT}" -eq 2 ]] || fail "Expected 2 Running silicon-inspector Pods on aarch64, found ${POD_COUNT}"
-pass "All ${POD_COUNT} Silicon Inspector Pods verified on Google Axion Arm64 (ARCH=aarch64, n4a Spot)."
+verify_pods_silicon_report "${KUBE_CONTEXT}" "${NAMESPACE}" "aarch64" "n4a-" "spot"
+pass "All 2 Silicon Inspector Pods verified on Google Axion Arm64 (ARCH=aarch64, n4a Spot)."
 
 log "Step 10: Capturing 'make status' in Stage 2 (migrated aarch64 state on Google Axion n4a)..."
 STAGE2_STATUS="$(make --no-print-directory -C "${REPO_ROOT}" KUBE_CONTEXT="${KUBE_CONTEXT}" status)"

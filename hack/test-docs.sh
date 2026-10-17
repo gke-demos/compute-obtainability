@@ -3,25 +3,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOG_PREFIX="test-docs"
+# shellcheck source=hack/lib.sh
+source "${SCRIPT_DIR}/lib.sh"
 
 README_FILE="${REPO_ROOT}/README.md"
 BLOG_FILE="${REPO_ROOT}/BLOG.md"
 TROUBLESHOOTING_FILE="${REPO_ROOT}/TROUBLESHOOTING.md"
 MP4_FILE="${REPO_ROOT}/assets/demo.mp4"
 GIF_FILE="${REPO_ROOT}/assets/demo.gif"
-
-log() {
-  printf "\033[1;34m[test-docs]\033[0m %s\n" "$*"
-}
-
-pass() {
-  printf "\033[1;32m[PASS]\033[0m %s\n" "$*"
-}
-
-fail() {
-  printf "\033[1;31m[FAIL]\033[0m %s\n" "$*" >&2
-  exit 1
-}
 
 log "Step 1: Checking required documentation and video files exist and are non-empty..."
 for f in "${README_FILE}" "${BLOG_FILE}" "${TROUBLESHOOTING_FILE}" "${MP4_FILE}" "${GIF_FILE}"; do
@@ -30,12 +20,7 @@ done
 pass "All required documentation files (README.md, BLOG.md, TROUBLESHOOTING.md) and media assets (assets/demo.mp4, assets/demo.gif) exist."
 
 log "Step 2: Checking public terminology hygiene across the entire repository..."
-BANNED_TERM="fluid"" compute"
-MATCHES="$(grep -ri --exclude-dir=.git "${BANNED_TERM}" "${REPO_ROOT}" || true)"
-if [[ -n "${MATCHES}" ]]; then
-  echo "${MATCHES}" >&2
-  fail "Found banned internal phrase in repository files"
-fi
+check_no_banned_terms "${REPO_ROOT}"
 pass "Zero occurrences of internal-only terminology across the entire repository."
 
 log "Step 3: Validating README.md, BLOG.md, and TROUBLESHOOTING.md content, domain glossary terms, and humanizer rules..."
