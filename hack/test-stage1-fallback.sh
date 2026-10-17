@@ -8,22 +8,12 @@ DEPLOYMENT="silicon-inspector"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOG_PREFIX="stage1-test"
+# shellcheck source=hack/lib.sh
+source "${SCRIPT_DIR}/lib.sh"
 
 CC_MANIFEST="${REPO_ROOT}/manifests/01-computeclass-fallback.yaml"
 APP_MANIFEST="${REPO_ROOT}/manifests/02-silicon-inspector.yaml"
-
-log() {
-  printf "\033[1;34m[stage1-test]\033[0m %s\n" "$*"
-}
-
-pass() {
-  printf "\033[1;32m[PASS]\033[0m %s\n" "$*"
-}
-
-fail() {
-  printf "\033[1;31m[FAIL]\033[0m %s\n" "$*" >&2
-  exit 1
-}
 
 log "Step 1: Checking Stage 1 manifests exist..."
 [[ -f "${CC_MANIFEST}" ]] || fail "Missing manifest: ${CC_MANIFEST}"
@@ -31,48 +21,16 @@ log "Step 1: Checking Stage 1 manifests exist..."
 pass "Both Stage 1 manifests exist."
 
 log "Step 2: Checking public terminology hygiene (no banned internal terms)..."
-BANNED_TERM="fluid"" compute"
-if grep -ri "${BANNED_TERM}" "${REPO_ROOT}/manifests/" >/dev/null 2>&1; then
-  fail "Found banned internal terminology in manifests/"
-fi
+check_no_banned_terms "${REPO_ROOT}/manifests/"
 pass "Manifests use canonical Compute Obtainability terminology."
 
 log "Step 3: Validating ComputeClass and Silicon Inspector manifest structure..."
-python3 - "${CC_MANIFEST}" "${APP_MANIFEST}" <<'PY'
+assert_computeclass_schema "${CC_MANIFEST}" "stage1"
+python3 - "${APP_MANIFEST}" <<'PY'
 import sys
 import yaml
 
-cc_path, app_path = sys.argv[1], sys.argv[2]
-
-with open(cc_path, "r", encoding="utf-8") as f:
-    cc_docs = [d for d in yaml.safe_load_all(f) if d]
-
-assert len(cc_docs) == 1, f"Expected 1 document in {cc_path}, got {len(cc_docs)}"
-cc = cc_docs[0]
-assert cc.get("apiVersion") == "cloud.google.com/v1", f"Unexpected apiVersion: {cc.get('apiVersion')}"
-assert cc.get("kind") == "ComputeClass", f"Unexpected kind: {cc.get('kind')}"
-assert cc.get("metadata", {}).get("name") == "obtainable-compute", "ComputeClass name must be obtainable-compute"
-
-spec = cc.get("spec", {})
-assert spec.get("nodePoolAutoCreation", {}).get("enabled") is True, "nodePoolAutoCreation.enabled must be true"
-assert (
-    spec.get("nodePoolConfig", {}).get("taintConfig", {}).get("architectureTaintBehavior") == "NONE"
-), "nodePoolConfig.taintConfig.architectureTaintBehavior must be NONE"
-assert (
-    spec.get("activeMigration", {}).get("optimizeRulePriority") is True
-), "activeMigration.optimizeRulePriority must be true"
-assert spec.get("whenUnsatisfiable") == "DoNotScaleUp", "whenUnsatisfiable must be DoNotScaleUp"
-
-priorities = spec.get("priorities", [])
-assert len(priorities) >= 3, f"Expected at least 3 priority rules, got {len(priorities)}"
-assert priorities[0].get("machineFamily") == "n4a", f"Priority #1 machineFamily must be n4a, got {priorities[0]}"
-assert (
-    priorities[0].get("reservations", {}).get("affinity") == "AnyThenFail"
-), f"Priority #1 reservations.affinity must be AnyThenFail, got {priorities[0]}"
-assert priorities[1].get("machineFamily") == "n4d", f"Priority #2 machineFamily must be n4d, got {priorities[1]}"
-assert priorities[1].get("spot") is True, f"Priority #2 spot must be True, got {priorities[1]}"
-assert priorities[2].get("machineFamily") == "n4", f"Priority #3 machineFamily must be n4, got {priorities[2]}"
-assert priorities[2].get("spot") is False, f"Priority #3 spot must be False, got {priorities[2]}"
+app_path = sys.argv[1]
 
 with open(app_path, "r", encoding="utf-8") as f:
     app_docs = [d for d in yaml.safe_load_all(f) if d]
@@ -143,32 +101,5 @@ PY
 pass "Cluster Autoscaler skipped unclaimable Priority #1 (n4a AnyThenFail) and provisioned Priority #2 (n4d Spot amd64)."
 
 log "Step 9: Verifying Silicon Inspector Pods report ARCH=x86_64, MACHINE_TYPE=n4d-*, and PROVISIONING=spot..."
-PODS="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" get pods -l app=silicon-inspector -o jsonpath='{.items[*].metadata.name}')"
-POD_COUNT=0
-for pod in ${PODS}; do
-  POD_COUNT=$((POD_COUNT + 1))
-  # Wait up to 30s for /tmp/silicon-report to be written
-  REPORT=""
-  for _ in {1..15}; do
-    if REPORT="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" exec "${pod}" -- cat /tmp/silicon-report 2>/dev/null)" && [[ -n "${REPORT}" ]]; then
-      break
-    fi
-    sleep 2
-  done
-  [[ -n "${REPORT}" ]] || fail "Pod ${pod} did not write /tmp/silicon-report"
-  echo "--- ${pod} /tmp/silicon-report ---"
-  echo "${REPORT}"
-  grep -q "^ARCH=x86_64$" <<<"${REPORT}" || fail "Pod ${pod} report missing ARCH=x86_64"
-  grep -q "^MACHINE_TYPE=n4d-" <<<"${REPORT}" || fail "Pod ${pod} report missing MACHINE_TYPE=n4d-*"
-  grep -q "^PROVISIONING=spot$" <<<"${REPORT}" || fail "Pod ${pod} report missing PROVISIONING=spot"
-
-  LOGS="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" logs "${pod}" --tail=5)"
-  echo "--- ${pod} stdout logs ---"
-  echo "${LOGS}"
-  grep -q "ARCH=x86_64" <<<"${LOGS}" || fail "Pod ${pod} stdout logs missing ARCH=x86_64"
-  grep -q "MACHINE_TYPE=n4d-" <<<"${LOGS}" || fail "Pod ${pod} stdout logs missing MACHINE_TYPE=n4d-*"
-  grep -q "PROVISIONING=spot" <<<"${LOGS}" || fail "Pod ${pod} stdout logs missing PROVISIONING=spot"
-done
-
-[[ "${POD_COUNT}" -eq 2 ]] || fail "Expected 2 silicon-inspector Pods, found ${POD_COUNT}"
-pass "All ${POD_COUNT} Silicon Inspector Pods verified on x86_64 (n4d Spot)."
+verify_pods_silicon_report "${KUBE_CONTEXT}" "${NAMESPACE}" "x86_64" "n4d-" "spot"
+pass "All 2 Silicon Inspector Pods verified on x86_64 (n4d Spot)."

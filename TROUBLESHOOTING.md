@@ -79,7 +79,7 @@ With `AnyThenFail`, when zero unconsumed `n4a` reservations exist, Cluster Autos
 
 After updating `spec.priorities` on an existing `ComputeClass` (`make unlock-arm`), you observe:
 
-1. Cluster Autoscaler takes roughly 2 minutes before initiating node replacement, even when `consolidationDelayMinutes: 1` is configured.
+1. Cluster Autoscaler takes roughly 2 minutes before initiating Active Migration, even when `consolidationDelayMinutes: 1` is configured.
 2. During the transition, the existing `x86_64` fallback node acquires `autoscaling.gke.io/defrag-candidate` and `ToBeDeletedByClusterAutoscaler` taints before Pods move.
 3. Inside Pods running on clusters with GKE Workload Identity (`GKE_METADATA`), querying `http://metadata.google.internal/computeMetadata/v1/instance/machine-type` or `instance/scheduling/provisioning-model` returns `404` or empty responses, and `/proc/cpuinfo` on Arm64 (`aarch64`) Linux kernels omits the x86 `model name` field.
 

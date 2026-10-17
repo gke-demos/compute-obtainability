@@ -24,10 +24,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 render_snapshot() {
-  local cc_json nodes_json pods_json
+  local cc_json nodes_json pods_json ca_json
   cc_json="$(kubectl --context="${KUBE_CONTEXT}" get computeclass "${COMPUTE_CLASS}" -o json 2>/dev/null || echo "{}")"
   nodes_json="$(kubectl --context="${KUBE_CONTEXT}" get nodes -l "cloud.google.com/compute-class=${COMPUTE_CLASS}" -o json 2>/dev/null || echo '{"items":[]}')"
   pods_json="$(kubectl --context="${KUBE_CONTEXT}" -n "${NAMESPACE}" get pods -l app=silicon-inspector -o json 2>/dev/null || echo '{"items":[]}')"
+  ca_json="$(kubectl --context="${KUBE_CONTEXT}" -n kube-system get configmap cluster-autoscaler-status -o json 2>/dev/null || echo '{}')"
 
   # Collect live /tmp/silicon-report from Running Pods
   local reports_raw=""
@@ -41,16 +42,18 @@ render_snapshot() {
     fi
   done
 
-  python3 - "${KUBE_CONTEXT}" "${cc_json}" "${nodes_json}" "${pods_json}" "${reports_raw}" <<'PY'
+  python3 - "${KUBE_CONTEXT}" "${cc_json}" "${nodes_json}" "${pods_json}" "${reports_raw}" "${ca_json}" <<'PY'
 import datetime
 import json
 import sys
+import yaml
 
 ctx = sys.argv[1]
 cc = json.loads(sys.argv[2] or "{}")
 nodes = json.loads(sys.argv[3] or '{"items":[]}').get("items", [])
 pods = json.loads(sys.argv[4] or '{"items":[]}').get("items", [])
 reports_raw = sys.argv[5]
+ca_cm = json.loads(sys.argv[6] or "{}")
 
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -104,6 +107,18 @@ else:
         f"autoCreate: {GREEN}{auto_create}{RESET} | "
         f"consolidation: {consol_delay}m/{consol_thresh}%"
     )
+    ca_health = "Unknown"
+    ca_scale_up = "Unknown"
+    ca_raw = ca_cm.get("data", {}).get("status", "")
+    if ca_raw:
+        try:
+            ca_doc = yaml.safe_load(ca_raw) or {}
+            cw = ca_doc.get("clusterWide", {})
+            ca_health = cw.get("health", {}).get("status", "Unknown")
+            ca_scale_up = cw.get("scaleUp", {}).get("status", "Unknown")
+        except Exception:
+            pass
+    print(f"  ClusterAutoscaler: Health={ca_health} | ScaleUp={ca_scale_up}")
 
     family_meta = {
         "n4a": ("arm64 / aarch64", "Google Axion Neoverse-N3"),
@@ -183,10 +198,8 @@ else:
         rep = reports.get(pname, {})
         u_arch = rep.get("ARCH", "-")
         mtype = rep.get("MACHINE_TYPE", "-")
-        prov = rep.get("PROV", rep.get("PROVISIONING", "-"))
+        prov = rep.get("PROVISIONING", "-")
         cpu_model = rep.get("CPU_MODEL", "-")
-        if cpu_model == "Arm64 (0x41/0xd8e)":
-            cpu_model = "Google Axion (Arm Neoverse-N3 0x41/0xd8e)"
         if u_arch == "aarch64":
             arch_disp = f"{GREEN}{u_arch:<7}{RESET}"
         elif u_arch == "x86_64":
