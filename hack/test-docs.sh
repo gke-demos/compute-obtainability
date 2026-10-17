@@ -8,22 +8,22 @@ LOG_PREFIX="test-docs"
 source "${SCRIPT_DIR}/lib.sh"
 
 README_FILE="${REPO_ROOT}/README.md"
-BLOG_FILE="${REPO_ROOT}/BLOG.md"
+BLOG_FILE="${REPO_ROOT}/BLOG-01-MULTI-ARCH.md"
 TROUBLESHOOTING_FILE="${REPO_ROOT}/TROUBLESHOOTING.md"
-MP4_FILE="${REPO_ROOT}/assets/demo.mp4"
-GIF_FILE="${REPO_ROOT}/assets/demo.gif"
+MP4_FILE="${REPO_ROOT}/assets/01-multi-arch-demo.mp4"
+GIF_FILE="${REPO_ROOT}/assets/01-multi-arch-demo.gif"
 
 log "Step 1: Checking required documentation and video files exist and are non-empty..."
 for f in "${README_FILE}" "${BLOG_FILE}" "${TROUBLESHOOTING_FILE}" "${MP4_FILE}" "${GIF_FILE}"; do
   [[ -s "${f}" ]] || fail "Missing or empty required artifact: ${f}"
 done
-pass "All required documentation files (README.md, BLOG.md, TROUBLESHOOTING.md) and media assets (assets/demo.mp4, assets/demo.gif) exist."
+pass "All required documentation files (README.md, BLOG-01-MULTI-ARCH.md, TROUBLESHOOTING.md) and media assets (assets/01-multi-arch-demo.mp4, assets/01-multi-arch-demo.gif) exist."
 
 log "Step 2: Checking public terminology hygiene across the entire repository..."
 check_no_banned_terms "${REPO_ROOT}"
 pass "Zero occurrences of internal-only terminology across the entire repository."
 
-log "Step 3: Validating README.md, BLOG.md, and TROUBLESHOOTING.md content, domain glossary terms, and humanizer rules..."
+log "Step 3: Validating README.md, BLOG-01-MULTI-ARCH.md, and TROUBLESHOOTING.md content, domain glossary terms, and humanizer rules..."
 python3 - "${README_FILE}" "${BLOG_FILE}" "${TROUBLESHOOTING_FILE}" <<'PY'
 import re
 import sys
@@ -44,7 +44,7 @@ def strip_code(md: str) -> str:
     no_inline = re.sub(r"`[^`]+`", "", no_fenced)
     return no_inline
 
-for name, content in [("README.md", readme), ("BLOG.md", blog), ("TROUBLESHOOTING.md", ts)]:
+for name, content in [("README.md", readme), ("BLOG-01-MULTI-ARCH.md", blog), ("TROUBLESHOOTING.md", ts)]:
     for marker in ("TODO", "TBD", "FIXME"):
         assert re.search(rf"\b{marker}\b", content) is None, f"{name} contains placeholder marker {marker}"
 
@@ -71,7 +71,7 @@ for name, content in [("README.md", readme), ("BLOG.md", blog), ("TROUBLESHOOTIN
         m = re.search(pat, prose, flags=re.IGNORECASE)
         assert m is None, f"{name} matched banned AI writing pattern '{pat}': {m.group(0)}"
 
-# Verify canonical GLOSSARY.md terms in README.md and BLOG.md
+# Verify canonical GLOSSARY.md terms in README.md and BLOG-01-MULTI-ARCH.md
 canonical_terms = [
     "Compute Obtainability",
     "Obtainability Ladder",
@@ -81,7 +81,7 @@ canonical_terms = [
     "Node Pool Auto-Creation",
     "Silicon Inspector",
 ]
-for name, content in [("README.md", readme), ("BLOG.md", blog)]:
+for name, content in [("README.md", readme), ("BLOG-01-MULTI-ARCH.md", blog)]:
     for term in canonical_terms:
         assert re.search(re.escape(term), content, re.IGNORECASE), f"{name} missing canonical glossary term '{term}'"
     assert "```mermaid" in content, f"{name} missing Mermaid architecture diagram"
@@ -99,11 +99,11 @@ for item in (
 ):
     assert item in readme, f"README.md missing required item '{item}'"
 
-# Verify BLOG.md embeds demo.gif, links to demo.mp4, includes empirical timeline table, and 3-point closing section
-assert "![GKE 1.37 Designing for Obtainability Live Demo](assets/demo.gif)" in blog, (
-    "BLOG.md missing ![GKE 1.37 Designing for Obtainability Live Demo](assets/demo.gif)"
+# Verify BLOG-01-MULTI-ARCH.md embeds 01-multi-arch-demo.gif, links to 01-multi-arch-demo.mp4, includes empirical timeline table, and 3-point closing section
+assert "![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)" in blog, (
+    "BLOG-01-MULTI-ARCH.md missing ![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)"
 )
-assert "assets/demo.mp4" in blog, "BLOG.md missing link to assets/demo.mp4"
+assert "assets/01-multi-arch-demo.mp4" in blog, "BLOG-01-MULTI-ARCH.md missing link to assets/01-multi-arch-demo.mp4"
 
 for empirical_fact in (
     "v1.37.0-gke.3503000",
@@ -124,7 +124,7 @@ for empirical_fact in (
     "0002-anythenfail-reservation-for-deterministic-fallback-and-active-migration.md",
     "0003-in-place-active-migration-and-defrag-lifecycle.md",
 ):
-    assert empirical_fact in blog, f"BLOG.md missing required empirical detail or link '{empirical_fact}'"
+    assert empirical_fact in blog, f"BLOG-01-MULTI-ARCH.md missing required empirical detail or link '{empirical_fact}'"
 
 # Verify TROUBLESHOOTING.md covers the 3 production lessons
 for ts_item in (
@@ -143,18 +143,18 @@ for ts_item in (
 ):
     assert ts_item in ts, f"TROUBLESHOOTING.md missing required topic '{ts_item}'"
 PY
-pass "README.md, BLOG.md, and TROUBLESHOOTING.md content, glossary terms, and humanizer rules verified."
+pass "README.md, BLOG-01-MULTI-ARCH.md, and TROUBLESHOOTING.md content, glossary terms, and humanizer rules verified."
 
-log "Step 4: Verifying assets/demo.mp4 and assets/demo.gif video streams with ffprobe..."
+log "Step 4: Verifying assets/01-multi-arch-demo.mp4 and assets/01-multi-arch-demo.gif video streams with ffprobe..."
 MP4_INFO="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height,duration -of default=noprint_wrappers=1 "${MP4_FILE}")"
 echo "${MP4_INFO}"
-grep -q "^codec_name=h264$" <<<"${MP4_INFO}" || fail "assets/demo.mp4 must use h264 video codec"
-grep -q "^width=1440$" <<<"${MP4_INFO}" || fail "assets/demo.mp4 must have width=1440 (macOS Sonoma frame)"
-grep -q "^height=940$" <<<"${MP4_INFO}" || fail "assets/demo.mp4 must have height=940 (macOS Sonoma frame)"
+grep -q "^codec_name=h264$" <<<"${MP4_INFO}" || fail "assets/01-multi-arch-demo.mp4 must use h264 video codec"
+grep -q "^width=1440$" <<<"${MP4_INFO}" || fail "assets/01-multi-arch-demo.mp4 must have width=1440 (macOS Sonoma frame)"
+grep -q "^height=940$" <<<"${MP4_INFO}" || fail "assets/01-multi-arch-demo.mp4 must have height=940 (macOS Sonoma frame)"
 
 GIF_INFO="$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 "${GIF_FILE}")"
 echo "${GIF_INFO}"
-grep -q "^codec_name=gif$" <<<"${GIF_INFO}" || fail "assets/demo.gif must be a valid GIF"
-pass "assets/demo.mp4 and assets/demo.gif verified."
+grep -q "^codec_name=gif$" <<<"${GIF_INFO}" || fail "assets/01-multi-arch-demo.gif must be a valid GIF"
+pass "assets/01-multi-arch-demo.mp4 and assets/01-multi-arch-demo.gif verified."
 
 pass "All Ticket #4 documentation and demo video checks passed!"

@@ -22,7 +22,7 @@ When a Pod selects `nodeSelector: { cloud.google.com/compute-class: obtainable-c
 
 ### Fix and verification
 
-Set `spec.nodePoolConfig.taintConfig.architectureTaintBehavior: NONE` on the `ComputeClass` ([manifests/01-computeclass-fallback.yaml](manifests/01-computeclass-fallback.yaml), [ADR-0001](docs/adr/0001-architecture-taint-none-over-pod-tolerations.md)):
+Set `spec.nodePoolConfig.taintConfig.architectureTaintBehavior: NONE` on the `ComputeClass` ([manifests/01-multi-arch/01-computeclass-fallback.yaml](manifests/01-multi-arch/01-computeclass-fallback.yaml), [ADR-0001](docs/adr/0001-architecture-taint-none-over-pod-tolerations.md)):
 
 ```yaml
   nodePoolAutoCreation:
@@ -58,7 +58,7 @@ In GKE `ComputeClass`, `reservations.affinity: AnyBestEffort` means "consume any
 
 ### Fix and verification
 
-Use `reservations.affinity: AnyThenFail` (introduced in GKE 1.36/1.37) whenever a priority rule should only succeed if reserved capacity can actually be claimed ([manifests/01-computeclass-fallback.yaml](manifests/01-computeclass-fallback.yaml), [ADR-0002](docs/adr/0002-anythenfail-reservation-for-deterministic-fallback-and-active-migration.md)):
+Use `reservations.affinity: AnyThenFail` (introduced in GKE 1.36/1.37) whenever a priority rule should only succeed if reserved capacity can actually be claimed ([manifests/01-multi-arch/01-computeclass-fallback.yaml](manifests/01-multi-arch/01-computeclass-fallback.yaml), [ADR-0002](docs/adr/0002-anythenfail-reservation-for-deterministic-fallback-and-active-migration.md)):
 
 ```yaml
   priorities:
@@ -96,7 +96,7 @@ Keep `autoscalingPolicy.consolidationDelayMinutes: 1` on `ComputeClass/obtainabl
 kubectl -n kube-system get configmap cluster-autoscaler-status -o jsonpath='{.data.status}'
 ```
 
-In `manifests/02-silicon-inspector.yaml`, the **Silicon Inspector** container handles both `GKE_METADATA` and Arm64 `/proc/cpuinfo` cleanly by:
+In `manifests/01-multi-arch/02-silicon-inspector.yaml`, the **Silicon Inspector** container handles both `GKE_METADATA` and Arm64 `/proc/cpuinfo` cleanly by:
 
 - Mapping `CPU implementer 0x41` + `CPU part 0xd8e` to `Google Axion (Arm Neoverse-N3 0x41/0xd8e)` (and `0x41/0xd4f` to `Google Axion (Arm Neoverse-V2 0x41/0xd4f)`).
 - Falling back to reading `node.kubernetes.io/instance-type` and `cloud.google.com/gke-spot` from `/api/v1/nodes/${NODE_NAME}` when `GKE_METADATA` omits raw GCE instance endpoints.

@@ -4,11 +4,11 @@ Zero-build reference for **Compute Obtainability** on GKE 1.37+ using Custom `Co
 
 Everything runs inside the `compute-obtainability` namespace using an unmodified multi-architecture **Silicon Inspector** workload (`alpine:3.20`) that falls back across machine families and live-migrates from AMD EPYC `x86_64` (`n4d` Spot) to Google Axion `aarch64` (`n4a` Spot) with zero Pod spec changes or architecture `tolerations`.
 
-For the full walkthrough, read [BLOG.md](BLOG.md). For deep dives on the three multi-architecture and reservation edge cases, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+For the full walkthrough, read [BLOG-01-MULTI-ARCH.md](BLOG-01-MULTI-ARCH.md). For deep dives on the three multi-architecture and reservation edge cases, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-![GKE 1.37 Designing for Obtainability Live Demo](assets/demo.gif)
+![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)
 
-*Watch the high-resolution MP4 recording: [assets/demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/demo.mp4)*
+*Watch the high-resolution MP4 recording: [assets/01-multi-arch-demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/01-multi-arch-demo.mp4)*
 
 ## Architecture
 
@@ -44,7 +44,7 @@ No custom container builds, Dockerfiles, or reserved capacity are required to ru
 make apply
 ```
 
-This applies `manifests/01-computeclass-fallback.yaml` and `manifests/02-silicon-inspector.yaml`. In Stage 1, Priority #1 requests Google Axion `n4a` with `reservations.affinity: AnyThenFail`. Because no `n4a` reservation exists, GKE fails Priority #1 immediately, advances to Priority #2 (`machineFamily: n4d`, `spot: true`), auto-creates an AMD EPYC `n4d-highcpu-2` (`amd64`) Spot node pool, and schedules both **Silicon Inspector** replicas on `x86_64`.
+This applies `manifests/01-multi-arch/01-computeclass-fallback.yaml` and `manifests/01-multi-arch/02-silicon-inspector.yaml`. In Stage 1, Priority #1 requests Google Axion `n4a` with `reservations.affinity: AnyThenFail`. Because no `n4a` reservation exists, GKE fails Priority #1 immediately, advances to Priority #2 (`machineFamily: n4d`, `spot: true`), auto-creates an AMD EPYC `n4d-highcpu-2` (`amd64`) Spot node pool, and schedules both **Silicon Inspector** replicas on `x86_64`.
 
 ### 2. Watch the Obtainability Ladder and live silicon status
 
@@ -80,13 +80,13 @@ make clean
 
 | Target | Command | What it does |
 | :--- | :--- | :--- |
-| `apply` | `make apply` | Deploys Stage 1 `ComputeClass` (`01-computeclass-fallback.yaml`) and `Silicon Inspector` (`02-silicon-inspector.yaml`) |
-| `unlock-arm` | `make unlock-arm` | Updates `ComputeClass/obtainable-compute` Priority #1 to obtainable `n4a` Arm64 Spot (`03-computeclass-obtainable-arm.yaml`) |
+| `apply` | `make apply` | Deploys Stage 1 `ComputeClass` (`manifests/01-multi-arch/01-computeclass-fallback.yaml`) and `Silicon Inspector` (`manifests/01-multi-arch/02-silicon-inspector.yaml`) |
+| `unlock-arm` | `make unlock-arm` | Updates `ComputeClass/obtainable-compute` Priority #1 to obtainable `n4a` Arm64 Spot (`manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`) |
 | `watch` | `make watch` | Refreshes the single-pane **Compute Obtainability** observer every 5 seconds |
 | `status` | `make status` | Prints a one-shot observer snapshot via `./hack/watch.sh --once` |
 | `logs` | `make logs` | Streams live stdout silicon reports from running **Silicon Inspector** Pods |
 | `verify` | `make verify` | Runs `./hack/verify-e2e.sh` to assert Stage 1 `x86_64` fallback and Stage 2 `aarch64` **Active Migration** |
-| `clean` | `make clean` | Deletes `manifests/02-silicon-inspector.yaml` and `ComputeClass/obtainable-compute` |
+| `clean` | `make clean` | Deletes `manifests/01-multi-arch/02-silicon-inspector.yaml` and `ComputeClass/obtainable-compute` |
 
 ## A few things to keep in mind
 
@@ -96,11 +96,11 @@ make clean
 
 ## Repository layout
 
-**`manifests/01-computeclass-fallback.yaml`.** Defines Stage 1 `ComputeClass/obtainable-compute` with `architectureTaintBehavior: NONE`, `optimizeRulePriority: true`, Priority #1 `n4a` (`AnyThenFail`), Priority #2 `n4d` (`spot: true`), and Priority #3 `n4` (`spot: false`).
+**`manifests/01-multi-arch/01-computeclass-fallback.yaml`.** Defines Stage 1 `ComputeClass/obtainable-compute` with `architectureTaintBehavior: NONE`, `optimizeRulePriority: true`, Priority #1 `n4a` (`AnyThenFail`), Priority #2 `n4d` (`spot: true`), and Priority #3 `n4` (`spot: false`).
 
-**`manifests/02-silicon-inspector.yaml`.** Defines `Namespace/compute-obtainability`, minimal Node-reader RBAC, and `Deployment/silicon-inspector` (`alpine:3.20`, 2 replicas, zero `tolerations`).
+**`manifests/01-multi-arch/02-silicon-inspector.yaml`.** Defines `Namespace/compute-obtainability`, minimal Node-reader RBAC, and `Deployment/silicon-inspector` (`alpine:3.20`, 2 replicas, zero `tolerations`).
 
-**`manifests/03-computeclass-obtainable-arm.yaml`.** Defines Stage 2 `ComputeClass/obtainable-compute` with Priority #1 promoted to obtainable Google Axion Arm64 Spot (`n4a`, `spot: true`).
+**`manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`.** Defines Stage 2 `ComputeClass/obtainable-compute` with Priority #1 promoted to obtainable Google Axion Arm64 Spot (`n4a`, `spot: true`).
 
 **`Makefile`.** Provides `apply`, `unlock-arm`, `watch`, `status`, `logs`, `verify`, and `clean`.
 
@@ -110,4 +110,4 @@ make clean
 
 **`TROUBLESHOOTING.md`, `GLOSSARY.md`, and `docs/adr/`.** Document the production edge cases, canonical domain terms, and architecture decision records `ADR-0001`, `ADR-0002`, and `ADR-0003`.
 
-**`BLOG.md`.** Full blog post with the engineering walkthrough and live demo.
+**`BLOG-01-MULTI-ARCH.md`.** Full blog post with the engineering walkthrough and live demo.

@@ -1,0 +1,196 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: obtainability-stateful
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storage-inspector
+  namespace: obtainability-stateful
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: storage-inspector-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: storage-inspector-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: storage-inspector-reader
+subjects:
+  - kind: ServiceAccount
+    name: storage-inspector
+    namespace: obtainability-stateful
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage-inspector
+  namespace: obtainability-stateful
+  labels:
+    app: storage-inspector
+spec:
+  clusterIP: None
+  selector:
+    app: storage-inspector
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: storage-inspector
+  namespace: obtainability-stateful
+  labels:
+    app: storage-inspector
+spec:
+  serviceName: storage-inspector
+  replicas: 1
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: storage-inspector
+  template:
+    metadata:
+      labels:
+        app: storage-inspector
+    spec:
+      serviceAccountName: storage-inspector
+      terminationGracePeriodSeconds: 5
+      nodeSelector:
+        cloud.google.com/compute-class: obtainable-stateful
+      containers:
+        - name: inspector
+          image: alpine:3.20
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              set -eu
+              PVC_NAME="data-${POD_NAME}"
+              API_BASE="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}/api/v1"
+              CA_CERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+              k8s_get() {
+                url="$1"
+                TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null || true)"
+                if [ -z "${TOKEN}" ]; then
+                  return 0
+                fi
+                wget -qO- -T 3 --ca-certificate="${CA_CERT}" \
+                  --header="Authorization: Bearer ${TOKEN}" "${url}" 2>/dev/null || \
+                wget -qO- -T 3 --no-check-certificate \
+                  --header="Authorization: Bearer ${TOKEN}" "${url}" 2>/dev/null || true
+              }
+
+              detect_cpu_model() {
+                model="$(grep -m1 '^model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^[[:space:]]*//' || true)"
+                if [ -n "${model}" ]; then
+                  printf "%s" "${model}"
+                else
+                  printf "unknown"
+                fi
+              }
+
+              detect_node_and_storage() {
+                NODE_JSON="$(k8s_get "${API_BASE}/nodes/${NODE_NAME}")"
+                MACHINE_TYPE="$(printf "%s" "${NODE_JSON}" | tr ',' '\n' | grep '"node.kubernetes.io/instance-type"' | head -n1 | cut -d'"' -f4 || true)"
+                spot_val="$(printf "%s" "${NODE_JSON}" | tr ',' '\n' | grep '"cloud.google.com/gke-spot"' | head -n1 | cut -d'"' -f4 || true)"
+                if [ "${spot_val}" = "true" ]; then
+                  PROVISIONING="spot"
+                elif [ -n "${spot_val}" ]; then
+                  PROVISIONING="standard"
+                else
+                  PROVISIONING="unknown"
+                fi
+                MACHINE_TYPE="${MACHINE_TYPE:-unknown}"
+
+                case "${MACHINE_TYPE}" in
+                  n4*|c4*|m4*) VM_GEN="Gen4" ;;
+                  n2*|c2*|t2*|m2*) VM_GEN="Gen3" ;;
+                  e2*|n1*) VM_GEN="Gen2" ;;
+                  *) VM_GEN="Unknown" ;;
+                esac
+
+                PVC_JSON="$(k8s_get "${API_BASE}/namespaces/${POD_NAMESPACE}/persistentvolumeclaims/${PVC_NAME}")"
+                PV_NAME="$(printf "%s" "${PVC_JSON}" | tr ',' '\n' | grep '"volumeName"' | head -n1 | cut -d'"' -f4 || true)"
+                PV_NAME="${PV_NAME:-unbound}"
+
+                DISK_TYPE="unknown"
+                if [ "${PV_NAME}" != "unbound" ]; then
+                  PV_JSON="$(k8s_get "${API_BASE}/persistentvolumes/${PV_NAME}")"
+                  DISK_TYPE="$(printf "%s" "${PV_JSON}" | tr '{},' '\n' | grep -oE 'disk-type\.gke\.io/(pd-[a-z0-9-]+|hyperdisk-[a-z0-9-]+)' | head -n1 | cut -d'/' -f2 || true)"
+                  if [ -z "${DISK_TYPE}" ] && [ -n "${PV_JSON}" ]; then
+                    DISK_TYPE="$(printf "%s" "${PV_JSON}" | tr '{},' '\n' | grep -E '"type":[[:space:]]*"(pd-[^"]+|hyperdisk-[^"]+)"' | head -n1 | cut -d'"' -f4 || true)"
+                  fi
+                  DISK_TYPE="${DISK_TYPE:-unknown}"
+                fi
+              }
+
+              LAST_RECORD=""
+              while true; do
+                TS="$(date -u +%H:%M:%SZ)"
+                CPU_MODEL="$(detect_cpu_model)"
+                detect_node_and_storage
+
+                RECORD="pod=${POD_NAME} node=${NODE_NAME} VM_GEN=${VM_GEN} MACHINE=${MACHINE_TYPE} PROV=${PROVISIONING} PVC=${PVC_NAME} PV=${PV_NAME} DISK_TYPE=${DISK_TYPE}"
+                if [ "${RECORD}" != "${LAST_RECORD}" ] || [ ! -s /data/replica-history.log ]; then
+                  printf "[%s] %s\n" "${TS}" "${RECORD}" >>/data/replica-history.log
+                  LAST_RECORD="${RECORD}"
+                fi
+
+                cat <<EOF >/tmp/storage-report.tmp
+              POD_NAME=${POD_NAME}
+              NODE_NAME=${NODE_NAME}
+              MACHINE_TYPE=${MACHINE_TYPE}
+              VM_GEN=${VM_GEN}
+              PROVISIONING=${PROVISIONING}
+              PVC_NAME=${PVC_NAME}
+              PV_NAME=${PV_NAME}
+              DISK_TYPE=${DISK_TYPE}
+              CPU_MODEL=${CPU_MODEL}
+              EOF
+                mv /tmp/storage-report.tmp /tmp/storage-report
+
+                printf "[%s] pod=%s VM_GEN=%s MACHINE=%s PROV=%s PVC=%s DISK_TYPE=%s\n" \
+                  "${TS}" "${POD_NAME}" "${VM_GEN}" "${MACHINE_TYPE}" "${PROVISIONING}" "${PVC_NAME}" "${DISK_TYPE}"
+                sleep 10
+              done
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: dynamic-rwo
+        resources:
+          requests:
+            storage: 10Gi
