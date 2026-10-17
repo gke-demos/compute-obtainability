@@ -26,7 +26,7 @@ Read the full walkthrough in [BLOG-01-MULTI-ARCH.md](BLOG-01-MULTI-ARCH.md).
 
 ![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)
 
-*Watch the high-resolution MP4 recording: [assets/01-multi-arch-demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/01-multi-arch-demo.mp4)*
+*Watch the high-resolution MP4 recording: [assets/01-multi-arch-demo.mp4](https://github.com/gke-demos/compute-obtainability/raw/main/assets/01-multi-arch-demo.mp4)*
 
 ```mermaid
 flowchart LR
@@ -65,7 +65,7 @@ Read the full walkthrough in [BLOG-02-STATEFUL-STORAGE.md](BLOG-02-STATEFUL-STOR
 
 ![GKE 1.37 Stateful Obtainability Live Demo](assets/02-stateful-storage-demo.gif)
 
-*Watch the high-resolution MP4 recording: [assets/02-stateful-storage-demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/02-stateful-storage-demo.mp4)*
+*Watch the high-resolution MP4 recording: [assets/02-stateful-storage-demo.mp4](https://github.com/gke-demos/compute-obtainability/raw/main/assets/02-stateful-storage-demo.mp4)*
 
 ```mermaid
 flowchart LR

@@ -1,4 +1,4 @@
-# Designing for Obtainability on GKE 1.37 (`moficodes/gke-design-for-obtainability`)
+# Designing for Obtainability on GKE 1.37 (`gke-demos/compute-obtainability`)
 
 Hands-on demo and blog post repository for **Designing for Obtainability** on GKE 1.37+ using Custom `ComputeClass` (`cloud.google.com/v1`), **Architecture Taint Suppression** (`taintConfig.architectureTaintBehavior: NONE`), **Fail-Fast Reservation Affinity** (`reservations.affinity: AnyThenFail`), **Active Migration** (`activeMigration.optimizeRulePriority: true`), **Dynamic Block Storage Selection** (`StorageClass/dynamic-rwo`), and **PV Disk-Topology Pinning** (`use-allowed-disk-topology: "true"`).
 
@@ -30,7 +30,7 @@ Hands-on demo and blog post repository for **Designing for Obtainability** on GK
 
 ### Issue tracker
 
-Issues and specs are tracked in GitHub Issues (`moficodes/gke-design-for-obtainability`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs are tracked in GitHub Issues (`gke-demos/compute-obtainability`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

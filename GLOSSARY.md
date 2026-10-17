@@ -1,6 +1,6 @@
 # Glossary
 
-Canonical domain terms for **Designing for Obtainability on GKE 1.37** (`moficodes/gke-design-for-obtainability`).
+Canonical domain terms for **Designing for Obtainability on GKE 1.37** (`gke-demos/compute-obtainability`).
 
 | Term | Definition | Avoid |
 | :--- | :--- | :--- |
