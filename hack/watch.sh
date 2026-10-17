@@ -158,6 +158,7 @@ else:
         if n.get("spec", {}).get("unschedulable"):
             status = "Ready,Cordoned" if status == "Ready" else "NotReady,Cordoned"
         taints = n.get("spec", {}).get("taints", [])
+        taint_keys = {t.get("key", "") for t in taints}
         short_taints = []
         for t in taints:
             k = t.get("key", "")
@@ -165,11 +166,16 @@ else:
             eff = t.get("effect", "")
             if k == "cloud.google.com/compute-class":
                 short_taints.append(f"compute-class:{eff}")
-            elif k == "autoscaling.gke.io/defrag-candidate":
-                short_taints.append("defrag-candidate")
             elif k == "ToBeDeletedByClusterAutoscaler":
                 short_taints.append("ToBeDeletedByCA")
-            elif k in ("autoscaling.gke.io/defrag-soft-candidate", "node.kubernetes.io/unschedulable"):
+            elif k == "autoscaling.gke.io/defrag-candidate":
+                if "ToBeDeletedByClusterAutoscaler" not in taint_keys:
+                    short_taints.append("defrag-candidate")
+            elif k in (
+                "autoscaling.gke.io/defrag-soft-candidate",
+                "DeletionCandidateOfClusterAutoscaler",
+                "node.kubernetes.io/unschedulable",
+            ):
                 continue
             else:
                 short_taints.append(f"{k}={v}:{eff}")
@@ -216,7 +222,7 @@ if [[ "${ONCE}" == "true" ]]; then
 fi
 
 while true; do
-  clear
-  render_snapshot
+  out="$(render_snapshot)"
+  printf '\033[H\033[2J%s\n' "${out}"
   sleep "${WATCH_INTERVAL}"
 done

@@ -156,8 +156,8 @@ spec:
               EOF
                 mv /tmp/silicon-report.tmp /tmp/silicon-report
 
-                printf "[%s] POD_NAME=%s NODE_NAME=%s ARCH=%s MACHINE_TYPE=%s PROVISIONING=%s CPU_MODEL=\"%s\"\n" \
-                  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                  "${POD_NAME}" "${NODE_NAME}" "${ARCH}" "${MACHINE_TYPE}" "${PROVISIONING}" "${CPU_MODEL}"
+                printf "[%s] pod=%s ARCH=%s MACHINE_TYPE=%s PROVISIONING=%s CPU=\"%s\"\n" \
+                  "$(date -u +%H:%M:%SZ)" \
+                  "${POD_NAME#silicon-inspector-}" "${ARCH}" "${MACHINE_TYPE}" "${PROVISIONING}" "${CPU_MODEL}"
                 sleep 10
               done

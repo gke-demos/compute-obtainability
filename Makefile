@@ -18,7 +18,7 @@ status:
 	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/watch.sh --once
 
 logs:
-	kubectl --context="$(KUBE_CONTEXT)" -n "$(NAMESPACE)" logs -l app=silicon-inspector --tail=20 -f
+	kubectl --context="$(KUBE_CONTEXT)" -n "$(NAMESPACE)" logs -l app=silicon-inspector --tail=4
 
 verify:
 	KUBE_CONTEXT="$(KUBE_CONTEXT)" ./hack/verify-e2e.sh
