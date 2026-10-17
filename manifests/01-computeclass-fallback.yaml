@@ -1,0 +1,32 @@
+apiVersion: cloud.google.com/v1
+kind: ComputeClass
+metadata:
+  name: obtainable-compute
+spec:
+  description: >-
+    Stage 1 Obtainability Ladder spanning Google Axion Arm64 (n4a) and x86_64
+    (n4d, n4) with Architecture Taint Suppression, Fail-Fast Reservation
+    Affinity, and Active Migration.
+  nodePoolAutoCreation:
+    enabled: true
+  nodePoolConfig:
+    taintConfig:
+      architectureTaintBehavior: NONE
+  activeMigration:
+    optimizeRulePriority: true
+  autoscalingPolicy:
+    consolidationDelayMinutes: 1
+    consolidationThreshold: 70
+  priorities:
+    # Priority #1: Claim an existing Google Axion Arm64 (n4a) reservation if available;
+    # otherwise fail fast (AnyThenFail) instead of billing On-Demand n4a.
+    - machineFamily: n4a
+      reservations:
+        affinity: AnyThenFail
+    # Priority #2: Fall back to obtainable AMD EPYC x86_64 (n4d) Spot capacity.
+    - machineFamily: n4d
+      spot: true
+    # Priority #3: Last-resort Intel Emerald Rapids x86_64 (n4) On-Demand capacity.
+    - machineFamily: n4
+      spot: false
+  whenUnsatisfiable: DoNotScaleUp
