@@ -66,7 +66,7 @@ In a second terminal, promote obtainable Google Axion Arm64 Spot (`machineFamily
 make unlock-arm
 ```
 
-Within about 2 to 3 minutes (`consolidationDelayMinutes: 1`), GKE's **Active Migration** loop marks the `n4d-highcpu-2` (`amd64`) node as a defragmentation candidate, auto-creates an untainted `n4a-highcpu-1` (`arm64`) Spot node pool, cordons and drains the `x86_64` node, and migrates both **Silicon Inspector** Pods onto `aarch64` (`Google Axion (Arm Neoverse-N3 0x41/0xd8e)`).
+Within about 2 to 3 minutes (`consolidationDelayMinutes: 1`), GKE's **Active Migration** loop marks the `n4d-highcpu-2` (`amd64`) node as a defragmentation candidate, auto-creates an `n4a-highcpu-1` (`arm64`) Spot node pool with **Architecture Taint Suppression** (no `kubernetes.io/arch` taint), cordons and drains the `x86_64` node, and migrates both **Silicon Inspector** Pods onto `aarch64` (`Google Axion (Arm Neoverse-N3 0x41/0xd8e)`).
 
 ### 4. Clean up
 
