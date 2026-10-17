@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 BANNED_TERM="fluid"" compute"
+BANNED_CLUSTER="ate""-cluster"
+BANNED_PROJECT="mofi""labs"
 
 log() {
   local prefix="${LOG_PREFIX:-obtainability}"
@@ -22,11 +24,13 @@ fail() {
 
 check_no_banned_terms() {
   local matches
-  matches="$(grep -ri --exclude-dir=.git "${BANNED_TERM}" "$@" 2>/dev/null || true)"
-  if [[ -n "${matches}" ]]; then
-    echo "${matches}" >&2
-    fail "Found banned internal terminology in: $*"
-  fi
+  for term in "${BANNED_TERM}" "${BANNED_CLUSTER}" "${BANNED_PROJECT}"; do
+    matches="$(grep -ri --exclude-dir=.git "${term}" "$@" 2>/dev/null || true)"
+    if [[ -n "${matches}" ]]; then
+      echo "${matches}" >&2
+      fail "Found banned internal terminology or hardcoded cluster/project reference (${term}) in: $*"
+    fi
+  done
 }
 
 assert_computeclass_schema() {

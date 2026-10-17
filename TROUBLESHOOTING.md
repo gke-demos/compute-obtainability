@@ -41,7 +41,7 @@ kubectl get nodes -l cloud.google.com/compute-class=obtainable-compute \
 
 ```text
 NAME                                                  ARCH    TAINTS
-gke-ate-cluster-nap-n4a-highcpu-1-spo-2a834e7c-lgkk   arm64   [map[effect:NoSchedule key:cloud.google.com/compute-class value:obtainable-compute]]
+gke-cluster-nap-n4a-highcpu-1-spo-2a834e7c-lgkk       arm64   [map[effect:NoSchedule key:cloud.google.com/compute-class value:obtainable-compute]]
 ```
 
 Workloads that do not select `cloud.google.com/compute-class: obtainable-compute` do not receive the `cloud.google.com/compute-class` toleration and cannot schedule onto these Arm64 nodes.

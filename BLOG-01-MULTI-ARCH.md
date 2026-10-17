@@ -143,7 +143,7 @@ In one terminal pane, run `make watch` to monitor the `ComputeClass` priority la
 make watch
 ```
 
-Once Stage 1 scale-up completes, you will see `gke-ate-cluster-nap-n4d-highcpu-2-spo-f29f397e-t7h9` (`amd64`, `n4d-highcpu-2`, `spot=true`) running both **Silicon Inspector** Pods on `x86_64` (`AMD EPYC 9B45`).
+Once Stage 1 scale-up completes, you will see an auto-created `n4d-highcpu-2` (`amd64`, `spot=true`) node running both **Silicon Inspector** Pods on `x86_64` (`AMD EPYC 9B45`).
 
 ### Step 3: Unlock Priority #1 Google Axion Arm64 (`make unlock-arm`)
 
@@ -180,7 +180,7 @@ make clean
 
 ## Live demo on GKE 1.37
 
-If you do not have a cluster handy, the recording below captures a full run on a live GKE `v1.37.0-gke.3503000` cluster (`gke_mofilabs_us-central1-a_ate-cluster`). The top pane runs the live `make watch` observer while the bottom pane inspects `ComputeClass/obtainable-compute` and streams `make logs` (`ARCH=x86_64 MACHINE_TYPE=n4d-highcpu-2 PROVISIONING=spot CPU="AMD EPYC 9B45"` on node `gke-ate-cluster-nap-n4d-highcpu-2-spo-f29f397e-t7h9`), runs `make unlock-arm` (`kubectl apply -f manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`), watches **Active Migration** provision two `n4a-highcpu-1` (`arm64`) Spot nodes (`cx7k` and `jcpx`) with **Architecture Taint Suppression** (`no arm64 taint`) and cordon/drain the `n4d` node (`defrag-candidate, ToBeDeletedByCA`), and runs `make logs` again to confirm both Pods are running on Google Axion (`ARCH=aarch64 MACHINE_TYPE=n4a-highcpu-1 PROVISIONING=spot CPU="Google Axion (Arm Neoverse-N3 0x41/0xd8e)"`).
+If you do not have a cluster handy, the recording below captures a full run on a live GKE `v1.37.0-gke.3503000` cluster. The top pane runs the live `make watch` observer while the bottom pane inspects `ComputeClass/obtainable-compute` and streams `make logs` (`ARCH=x86_64 MACHINE_TYPE=n4d-highcpu-2 PROVISIONING=spot CPU="AMD EPYC 9B45"`), runs `make unlock-arm` (`kubectl apply -f manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`), watches **Active Migration** provision two `n4a-highcpu-1` (`arm64`) Spot nodes with **Architecture Taint Suppression** (`no arm64 taint`) and cordon/drain the `n4d` node (`defrag-candidate, ToBeDeletedByCA`), and runs `make logs` again to confirm both Pods are running on Google Axion (`ARCH=aarch64 MACHINE_TYPE=n4a-highcpu-1 PROVISIONING=spot CPU="Google Axion (Arm Neoverse-N3 0x41/0xd8e)"`).
 
 ![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)
 

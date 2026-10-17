@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-KUBE_CONTEXT="${KUBE_CONTEXT:-gke_mofilabs_us-central1-a_ate-cluster}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-$(kubectl config current-context 2>/dev/null || true)}"
 NAMESPACE="${NAMESPACE:-compute-obtainability}"
 COMPUTE_CLASS="${COMPUTE_CLASS:-obtainable-compute}"
 WATCH_INTERVAL="${WATCH_INTERVAL:-5}"

@@ -7,9 +7,9 @@
 
 When `spec.activeMigration.optimizeRulePriority: true` is configured on a GKE `ComputeClass` (`cloud.google.com/v1`), operators need to know whether an in-place update to `spec.priorities` (such as promoting obtainable Google Axion Arm64 `n4a` Spot to Priority #1 via `make unlock-arm`) triggers **Active Migration** automatically or requires an external Pod scale event, and what node taints and timings occur during the migration.
 
-## Empirical Observations on `ate-cluster` (`v1.37.0-gke.3503000`)
+## Empirical Observations on GKE 1.37 (`v1.37.0-gke.3503000`)
 
-During live verification on `gke_mofilabs_us-central1-a_ate-cluster`:
+During live verification on a GKE `v1.37.0-gke.3503000` cluster:
 
 1. **Zero-Touch In-Place Trigger**: Applying `manifests/03-computeclass-obtainable-arm.yaml` (`kubectl apply -f ...`) triggers **Active Migration** automatically without any Pod scaling event or edit to `Deployment/silicon-inspector` (`metadata.generation` remained `1`).
 2. **Consolidation & Defragmentation Window (`~125s - 137s`)**:

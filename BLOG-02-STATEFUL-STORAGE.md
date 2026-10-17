@@ -163,7 +163,7 @@ In one terminal pane, run `make watch-stateful` (or `make status-stateful` for a
 make watch-stateful
 ```
 
-Once Stage 1 scale-up completes, `storage-inspector-0` is running on `gke-ate-cluster-nap-n2d-standard-2-sp-22bb8656-vn95` (`Gen3`, `n2d-standard-2`, `AMD EPYC 7B13`) with `data-storage-inspector-0` bound to a `pd-balanced` volume (`disk-type.gke.io/pd-balanced=true`).
+Once Stage 1 scale-up completes, `storage-inspector-0` is running on an auto-created 3rd-generation `n2d-standard-2` Spot node (`Gen3`, `AMD EPYC 7B13`) with `data-storage-inspector-0` bound to a `pd-balanced` volume (`disk-type.gke.io/pd-balanced=true`).
 
 ### Step 3: Unlock Gen 4 `n4d` Spot and scale out (`make unlock-gen4`)
 
@@ -201,7 +201,7 @@ make clean
 
 ## Live demo on GKE 1.37
 
-The recording below was captured from a live run on `gke_mofilabs_us-central1-a_ate-cluster` (`v1.37.0-gke.3503000`). The top pane runs `./hack/watch-stateful.sh --interval 2` while the bottom pane inspects `StorageClass/dynamic-rwo` and streams `make logs-stateful` in Stage 1 (`pod=storage-inspector-0 VM_GEN=Gen3 MACHINE=n2d-standard-2 PROV=spot PVC=data-storage-inspector-0 DISK_TYPE=pd-balanced`), runs `make unlock-gen4`, watches GKE provision the Gen 4 `n4d-highcpu-2` Spot node (`gke-ate-cluster-nap-n4d-highcpu-2-spo-198e4954-4n5p`) and bind `data-storage-inspector-1` to `hyperdisk-balanced` (`disk-type.gke.io/hyperdisk-balanced=true`), and runs `make logs-stateful` a second time to show `storage-inspector-0` (`Gen3`, `n2d-standard-2`, `pd-balanced`) and `storage-inspector-1` (`Gen4`, `n4d-highcpu-2`, `hyperdisk-balanced`) side by side.
+The recording below was captured from a live run on a GKE `v1.37.0-gke.3503000` cluster. The top pane runs `./hack/watch-stateful.sh --interval 2` while the bottom pane inspects `StorageClass/dynamic-rwo` and streams `make logs-stateful` in Stage 1 (`pod=storage-inspector-0 VM_GEN=Gen3 MACHINE=n2d-standard-2 PROV=spot PVC=data-storage-inspector-0 DISK_TYPE=pd-balanced`), runs `make unlock-gen4`, watches GKE provision a Gen 4 `n4d-highcpu-2` Spot node and bind `data-storage-inspector-1` to `hyperdisk-balanced` (`disk-type.gke.io/hyperdisk-balanced=true`), and runs `make logs-stateful` a second time to show `storage-inspector-0` (`Gen3`, `n2d-standard-2`, `pd-balanced`) and `storage-inspector-1` (`Gen4`, `n4d-highcpu-2`, `hyperdisk-balanced`) side by side.
 
 ![GKE 1.37 Stateful Obtainability Live Demo](assets/02-stateful-storage-demo.gif)
 

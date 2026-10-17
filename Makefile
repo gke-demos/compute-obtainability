@@ -1,4 +1,4 @@
-KUBE_CONTEXT ?= gke_mofilabs_us-central1-a_ate-cluster
+KUBE_CONTEXT ?= $(shell kubectl config current-context 2>/dev/null)
 NAMESPACE ?= compute-obtainability
 COMPUTE_CLASS ?= obtainable-compute
 STATEFUL_NAMESPACE ?= obtainability-stateful
