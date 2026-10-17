@@ -65,6 +65,7 @@ clean-multi-arch:
 	kubectl --context="$(KUBE_CONTEXT)" delete computeclass "$(COMPUTE_CLASS)" --ignore-not-found=true
 
 clean-stateful:
+	kubectl --context="$(KUBE_CONTEXT)" -n "$(STATEFUL_NAMESPACE)" delete statefulset storage-inspector --ignore-not-found=true
 	kubectl --context="$(KUBE_CONTEXT)" -n "$(STATEFUL_NAMESPACE)" delete pvc --all --ignore-not-found=true
 	kubectl --context="$(KUBE_CONTEXT)" delete -f manifests/02-stateful-storage/02-storage-inspector.yaml --ignore-not-found=true
 	kubectl --context="$(KUBE_CONTEXT)" delete computeclass "$(STATEFUL_COMPUTE_CLASS)" --ignore-not-found=true

@@ -1,16 +1,32 @@
 # Designing for compute obtainability on GKE 1.37
 
-Zero-build reference for **Compute Obtainability** on GKE 1.37+ using Custom `ComputeClass` (`cloud.google.com/v1`), **Architecture Taint Suppression** (`taintConfig.architectureTaintBehavior: NONE`), **Fail-Fast Reservation Affinity** (`reservations.affinity: AnyThenFail`), **Node Pool Auto-Creation** (`nodePoolAutoCreation.enabled: true`), and cross-architecture **Active Migration** (`activeMigration.optimizeRulePriority: true`).
+Zero-build reference repository for **Compute Obtainability** on GKE 1.37+ using Custom `ComputeClass` (`cloud.google.com/v1`), **Architecture Taint Suppression** (`taintConfig.architectureTaintBehavior: NONE`), **Fail-Fast Reservation Affinity** (`reservations.affinity: AnyThenFail`), **Node Pool Auto-Creation** (`nodePoolAutoCreation.enabled: true`), **Active Migration** (`activeMigration.optimizeRulePriority: true`), **Dynamic Block Storage Selection** (`StorageClass/dynamic-rwo`), and **PV Disk-Topology Pinning** (`use-allowed-disk-topology: "true"`).
 
-Everything runs inside the `compute-obtainability` namespace using an unmodified multi-architecture **Silicon Inspector** workload (`alpine:3.20`) that falls back across machine families and live-migrates from AMD EPYC `x86_64` (`n4d` Spot) to Google Axion `aarch64` (`n4a` Spot) with zero Pod spec changes or architecture `tolerations`.
+This repository contains two self-contained, end-to-end live cluster demos:
 
-For the full walkthrough, read [BLOG-01-MULTI-ARCH.md](BLOG-01-MULTI-ARCH.md). For deep dives on the three multi-architecture and reservation edge cases, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+| Demo | Focus | Namespace & Workload | Manifests | Full Walkthrough |
+| :--- | :--- | :--- | :--- | :--- |
+| **Demo 01 (`01-multi-arch`)** | Stateless cross-architecture obtainability & live migration across AMD EPYC `x86_64` (`n4d`) and Google Axion `arm64` (`n4a`) | `compute-obtainability` / `Deployment/silicon-inspector` (**Silicon Inspector**) | `manifests/01-multi-arch/` | [BLOG-01-MULTI-ARCH.md](BLOG-01-MULTI-ARCH.md) |
+| **Demo 02 (`02-stateful-storage`)** | Stateful cross-generation obtainability across 3rd-Gen (`n2d` + `pd-balanced`) and 4th-Gen (`n4d` + `hyperdisk-balanced`) VMs with `dynamic-rwo` | `obtainability-stateful` / `StatefulSet/storage-inspector` (**Storage Inspector**) | `manifests/02-stateful-storage/` | [BLOG-02-STATEFUL-STORAGE.md](BLOG-02-STATEFUL-STORAGE.md) |
+
+For production edge cases and operational lessons across both demos, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md), [GLOSSARY.md](GLOSSARY.md), and the architecture decision records in [`docs/adr/`](docs/adr/).
+
+## Prerequisites
+
+1. A GKE cluster running version `1.37` or later, verified on `v1.37.0-gke.3503000`.
+2. `kubectl` and `make` configured locally. Every `Makefile` target accepts `KUBE_CONTEXT=<your-context>`.
+
+No custom container builds, Dockerfiles, or reserved capacity are required to run either demo.
+
+## Demo 01: Multi-architecture silicon obtainability (`01-multi-arch`)
+
+An unmodified multi-architecture **Silicon Inspector** workload (`alpine:3.20`) starts by failing fast past an unclaimable reservation (`reservations.affinity: AnyThenFail`), lands on AMD EPYC `x86_64` (`n4d-highcpu-2` Spot), and live-migrates onto Google Axion `aarch64` (`n4a-highcpu-1` Spot) via **Active Migration** (`optimizeRulePriority: true`) and **Architecture Taint Suppression** (`architectureTaintBehavior: NONE`) with zero Pod spec changes or architecture `tolerations`.
+
+Read the full walkthrough in [BLOG-01-MULTI-ARCH.md](BLOG-01-MULTI-ARCH.md).
 
 ![GKE 1.37 Designing for Obtainability Live Demo](assets/01-multi-arch-demo.gif)
 
 *Watch the high-resolution MP4 recording: [assets/01-multi-arch-demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/01-multi-arch-demo.mp4)*
-
-## Architecture
 
 ```mermaid
 flowchart LR
@@ -23,91 +39,94 @@ flowchart LR
   N4D -.->|"defrag-candidate -> drain"| N4A
 ```
 
-## How the three GKE 1.37 primitives work together
-
-- **Architecture Taint Suppression (`nodePoolConfig.taintConfig.architectureTaintBehavior: NONE`)**: By default, GKE taints Arm64 nodes (`n4a`, `c4a`, `t2a`) with `kubernetes.io/arch=arm64:NoSchedule`. Setting `architectureTaintBehavior: NONE` on the `ComputeClass` suppresses that architecture taint on Arm64 node pools created for this class while preserving the `cloud.google.com/compute-class=obtainable-compute:NoSchedule` isolation taint. Multi-architecture container images (`linux/amd64` and `linux/arm64`) schedule onto either `x86_64` or `arm64` nodes without adding `tolerations` to every Deployment.
-- **Fail-Fast Reservation Affinity (`reservations.affinity: AnyThenFail`)**: Setting `AnyBestEffort` on a priority rule causes Cluster Autoscaler to fall back to On-Demand VMs of that same machine family when a reservation is exhausted, bypassing lower-cost Spot rules further down the **Obtainability Ladder**. Setting `reservations.affinity: AnyThenFail` consumes a matching reservation if one exists and immediately advances to the next priority rule when none is claimable.
-- **Cross-Architecture Active Migration (`activeMigration.optimizeRulePriority: true`)**: When Pods are running on a lower-priority rule (`n4d` `x86_64` Spot) and a higher-priority rule (`n4a` Google Axion `arm64` Spot) becomes obtainable, GKE provisions the higher-priority node pool via **Node Pool Auto-Creation**, marks the fallback node with `autoscaling.gke.io/defrag-candidate`, cordons and drains it, and migrates running Pods onto the preferred silicon automatically.
-
-## Prerequisites
-
-1. A GKE cluster running version `1.37` or later, verified on `v1.37.0-gke.3503000`.
-2. `kubectl` and `make` configured locally. Every `Makefile` target accepts `KUBE_CONTEXT=<your-context>`.
-
-No custom container builds, Dockerfiles, or reserved capacity are required to run this demo.
-
-## Run it in four commands
-
-### 1. Deploy Stage 1 (initial fallback to `x86_64`)
+### Run Demo 01 in four commands
 
 ```bash
-make apply
-```
+# 1. Deploy Stage 1 (Priority #1 n4a AnyThenFail -> falls back to Priority #2 n4d x86_64 Spot)
+make apply-multi-arch   # (or: make apply)
 
-This applies `manifests/01-multi-arch/01-computeclass-fallback.yaml` and `manifests/01-multi-arch/02-silicon-inspector.yaml`. In Stage 1, Priority #1 requests Google Axion `n4a` with `reservations.affinity: AnyThenFail`. Because no `n4a` reservation exists, GKE fails Priority #1 immediately, advances to Priority #2 (`machineFamily: n4d`, `spot: true`), auto-creates an AMD EPYC `n4d-highcpu-2` (`amd64`) Spot node pool, and schedules both **Silicon Inspector** replicas on `x86_64`.
+# 2. Watch the Obtainability Ladder and live Pod architectures (or: make status)
+make watch-multi-arch   # (or: make watch)
 
-### 2. Watch the Obtainability Ladder and live silicon status
-
-```bash
-make watch
-```
-
-`make watch` refreshes every 5 seconds and prints the `ComputeClass` priority rules and health, active `obtainable-compute` nodes with their architecture and taints, and each **Silicon Inspector** Pod's live `uname -m` architecture (`x86_64` vs `aarch64`), GCE instance type, provisioning model, and CPU silicon model. For a single snapshot without clearing the screen, run:
-
-```bash
-make status
-```
-
-### 3. Unlock Priority #1 Google Axion Arm64 (`make unlock-arm`)
-
-In a second terminal, promote obtainable Google Axion Arm64 Spot (`machineFamily: n4a`, `spot: true`) to Priority #1 without touching `Deployment/silicon-inspector`:
-
-```bash
+# 3. Promote obtainable Google Axion Arm64 Spot to Priority #1 -> triggers Active Migration
 make unlock-arm
+
+# 4. Tear down Demo 01 resources
+make clean-multi-arch
 ```
 
-Within about 2 to 3 minutes (`consolidationDelayMinutes: 1`), GKE's **Active Migration** loop marks the `n4d-highcpu-2` (`amd64`) node as a defragmentation candidate, auto-creates an `n4a-highcpu-1` (`arm64`) Spot node pool with **Architecture Taint Suppression** (no `kubernetes.io/arch` taint), cordons and drains the `x86_64` node, and migrates both **Silicon Inspector** Pods onto `aarch64` (`Google Axion (Arm Neoverse-N3 0x41/0xd8e)`).
+## Demo 02: Cross-generation stateful obtainability (`02-stateful-storage`)
 
-### 4. Clean up
+When a `ComputeClass` **Obtainability Ladder** spans 4th-generation VMs (`n4d`, `n4`, `n4a`, `c4`, which only attach Google Cloud Hyperdisk) and 3rd-generation fallback VMs (`n2d`, `n2`, which only attach Persistent Disk), hardcoding `standard-rwo` (`pd-balanced`) or a static `hyperdisk-balanced` `StorageClass` breaks one side of the ladder.
 
-When finished, delete the workload namespace and `ComputeClass` so GKE removes the auto-created node pools:
+Demo 02 pairs `ComputeClass/obtainable-stateful` with GKE's pre-installed `StorageClass/dynamic-rwo` (**Dynamic Block Storage Selection**, `volumeBindingMode: WaitForFirstConsumer`, `parameters.type: dynamic`, `use-allowed-disk-topology: "true"`). In Stage 1, `storage-inspector-0` (**Storage Inspector**) fails fast past an unclaimable Gen 4 `n4d` reservation, schedules onto a Gen 3 `n2d-standard-2` Spot node (`AMD EPYC 7B13`), and automatically binds to a `10Gi` `pd-balanced` volume (`disk-type.gke.io/pd-balanced=true`). In Stage 2 (`make unlock-gen4`), unlocking Gen 4 `n4d` Spot at Priority #1 and scaling to 2 replicas provisions a Gen 4 `n4d-highcpu-2` Spot node (`AMD EPYC 9B45`) and dynamically binds `data-storage-inspector-1` to `hyperdisk-balanced` (`disk-type.gke.io/hyperdisk-balanced=true`), while **PV Disk-Topology Pinning** keeps `storage-inspector-0` pinned safely to its Gen 3 `n2d-standard-2` node.
+
+Read the full walkthrough in [BLOG-02-STATEFUL-STORAGE.md](BLOG-02-STATEFUL-STORAGE.md).
+
+![GKE 1.37 Stateful Obtainability Live Demo](assets/02-stateful-storage-demo.gif)
+
+*Watch the high-resolution MP4 recording: [assets/02-stateful-storage-demo.mp4](https://github.com/moficodes/gke-design-for-obtainability/raw/main/assets/02-stateful-storage-demo.mp4)*
+
+```mermaid
+flowchart LR
+  STS["Storage Inspector StatefulSet\n(nodeSelector: obtainable-stateful\nstorageClassName: dynamic-rwo)"] -->|"requests"| CC["ComputeClass: obtainable-stateful\noptimizeRulePriority: true\nnodePoolAutoCreation: true"]
+  STS -->|"WaitForFirstConsumer"| SC["StorageClass: dynamic-rwo\ntype: dynamic\ngen4: hyperdisk-balanced\ngen3: pd-balanced\nuse-allowed-disk-topology: true"]
+  CC -->|"Priority #1 (Stage 1)"| P1S1["Gen 4 AMD EPYC (n4d)\nreservations.affinity: AnyThenFail"]
+  P1S1 -->|"No reservation claimable\nfails fast"| P2["Priority #2: Gen 3 AMD EPYC\nmachineFamily: n2d (spot: true)"]
+  P2 -->|"Stage 1 replica-0"| N2D["n2d-standard-2 Node (Gen 3)\nstorage-inspector-0\nPVC: data-storage-inspector-0 -> pd-balanced\nnodeAffinity: disk-type.gke.io/pd-balanced=true"]
+  Unlock["make unlock-gen4\n(Priority #1 -> n4d spot: true\nscale replicas=2)"] -->|"Stage 2 scale-out"| CC
+  CC -->|"Priority #1 (Stage 2)"| N4D["n4d-highcpu-2 Node (Gen 4)\nstorage-inspector-1\nPVC: data-storage-inspector-1 -> hyperdisk-balanced\nnodeAffinity: disk-type.gke.io/hyperdisk-balanced=true"]
+  N2D -.->|"PV Disk-Topology Pinning\nkeeps replica-0 safe on Gen 3"| N2D
+```
+
+### Run Demo 02 in four commands
 
 ```bash
-make clean
+# 1. Deploy Stage 1 (Priority #1 n4d AnyThenFail -> falls back to Priority #2 Gen 3 n2d Spot with pd-balanced)
+make apply-stateful
+
+# 2. Watch the Stateful Obtainability observer (or: make status-stateful)
+make watch-stateful
+
+# 3. Unlock Priority #1 Gen 4 n4d Spot and scale StatefulSet/storage-inspector to 2 replicas
+make unlock-gen4
+
+# 4. Tear down Demo 02 resources (including PVCs)
+make clean-stateful     # (or: make clean)
 ```
 
 ## Makefile targets
 
 | Target | Command | What it does |
 | :--- | :--- | :--- |
-| `apply` | `make apply` | Deploys Stage 1 `ComputeClass` (`manifests/01-multi-arch/01-computeclass-fallback.yaml`) and `Silicon Inspector` (`manifests/01-multi-arch/02-silicon-inspector.yaml`) |
+| `apply` / `apply-multi-arch` | `make apply` | Deploys Demo 01 Stage 1 (`manifests/01-multi-arch/01-computeclass-fallback.yaml` and `02-silicon-inspector.yaml`) |
 | `unlock-arm` | `make unlock-arm` | Updates `ComputeClass/obtainable-compute` Priority #1 to obtainable `n4a` Arm64 Spot (`manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`) |
-| `watch` | `make watch` | Refreshes the single-pane **Compute Obtainability** observer every 5 seconds |
-| `status` | `make status` | Prints a one-shot observer snapshot via `./hack/watch.sh --once` |
-| `logs` | `make logs` | Streams live stdout silicon reports from running **Silicon Inspector** Pods |
-| `verify` | `make verify` | Runs `./hack/verify-e2e.sh` to assert Stage 1 `x86_64` fallback and Stage 2 `aarch64` **Active Migration** |
-| `clean` | `make clean` | Deletes `manifests/01-multi-arch/02-silicon-inspector.yaml` and `ComputeClass/obtainable-compute` |
+| `watch` / `watch-multi-arch` | `make watch` | Refreshes the Demo 01 **Compute Obtainability** observer every 5 seconds (`./hack/watch.sh`) |
+| `status` / `status-multi-arch` | `make status` | Prints a one-shot Demo 01 observer snapshot (`./hack/watch.sh --once`) |
+| `logs` / `logs-multi-arch` | `make logs` | Streams live stdout silicon reports from **Silicon Inspector** Pods |
+| `verify` / `verify-multi-arch` | `make verify` | Runs `./hack/verify-e2e.sh` for Demo 01 Stage 1 fallback and Stage 2 `aarch64` **Active Migration** |
+| `clean-multi-arch` | `make clean-multi-arch` | Deletes Demo 01 workload and `ComputeClass/obtainable-compute` |
+| `apply-stateful` | `make apply-stateful` | Deploys Demo 02 Stage 1 (`manifests/02-stateful-storage/01-computeclass-fallback.yaml` and `02-storage-inspector.yaml`) |
+| `unlock-gen4` | `make unlock-gen4` | Updates `ComputeClass/obtainable-stateful` Priority #1 to obtainable Gen 4 `n4d` Spot and scales `StatefulSet/storage-inspector` to `replicas=2` |
+| `watch-stateful` | `make watch-stateful` | Refreshes the Demo 02 Stateful Storage Obtainability observer every 5 seconds (`./hack/watch-stateful.sh`) |
+| `status-stateful` | `make status-stateful` | Prints a one-shot Demo 02 observer snapshot (`./hack/watch-stateful.sh --once`) |
+| `logs-stateful` | `make logs-stateful` | Streams live stdout storage reports from **Storage Inspector** Pods |
+| `verify-stateful` | `make verify-stateful` | Runs `./hack/verify-stateful-e2e.sh` for Demo 02 cross-generation stateful obtainability |
+| `clean-stateful` | `make clean-stateful` | Deletes Demo 02 PVCs, workload, and `ComputeClass/obtainable-stateful` |
+| `clean` | `make clean` | Runs both `clean-multi-arch` and `clean-stateful` |
 
 ## A few things to keep in mind
 
 - **Suppressing the Arm64 taint keeps `ComputeClass` node isolation intact.** Setting `architectureTaintBehavior: NONE` removes `kubernetes.io/arch=arm64:NoSchedule` from Arm64 nodes in that `ComputeClass`, while GKE still applies `cloud.google.com/compute-class=obtainable-compute:NoSchedule`. Unrelated cluster workloads will not accidentally schedule onto those Arm64 nodes. See [TROUBLESHOOTING.md #1](TROUBLESHOOTING.md#1-architecturetaintbehavior-none-vs-cloudgooglecomcompute-class-isolation-taints) and [ADR-0001](docs/adr/0001-architecture-taint-none-over-pod-tolerations.md).
 - **Use `AnyThenFail` when you want unused reservations to fall through to Spot.** With `reservations.affinity: AnyBestEffort`, an exhausted reservation on Priority #1 silently provisions On-Demand VMs of that same machine family instead of advancing to Priority #2 Spot VMs. Use `AnyThenFail` so Cluster Autoscaler immediately moves to the next rule in your **Obtainability Ladder**. See [TROUBLESHOOTING.md #2](TROUBLESHOOTING.md#2-reservationsaffinity-anythenfail-vs-anybesteffort-on-priority-1) and [ADR-0002](docs/adr/0002-anythenfail-reservation-for-deterministic-fallback-and-active-migration.md).
-- **In-place `ComputeClass` priority updates wait for `consolidationDelayMinutes` before draining.** Updating `spec.priorities` triggers **Active Migration** automatically without editing your Deployment, after the consolidation timer expires and marks lower-priority nodes with `autoscaling.gke.io/defrag-candidate`. Also note that clusters with Workload Identity (`GKE_METADATA`) hide raw GCE instance metadata paths from Pods, so inspecting `node.kubernetes.io/instance-type` and `cloud.google.com/gke-spot` on the Kubernetes Node object is a reliable fallback. See [TROUBLESHOOTING.md #3](TROUBLESHOOTING.md#3-in-place-active-migration-timing-defrag-candidate-taints-and-gke_metadata-node-labels) and [ADR-0003](docs/adr/0003-in-place-active-migration-and-defrag-lifecycle.md).
+- **In-place `ComputeClass` priority updates wait for `consolidationDelayMinutes` before draining.** Updating `spec.priorities` triggers **Active Migration** automatically without editing your Deployment, after the consolidation timer expires and marks lower-priority nodes with `autoscaling.gke.io/defrag-candidate`. See [TROUBLESHOOTING.md #3](TROUBLESHOOTING.md#3-in-place-active-migration-timing-defrag-candidate-taints-and-gke_metadata-node-labels) and [ADR-0003](docs/adr/0003-in-place-active-migration-and-defrag-lifecycle.md).
+- **Pair cross-generation `ComputeClass` ladders with `StorageClass/dynamic-rwo` for stateful workloads.** 4th-generation VMs (`n4d`, `n4`, `n4a`, `c4`) only attach Hyperdisk while 2nd- and 3rd-generation VMs (`n2d`, `n2`, `e2`) only attach Persistent Disk. `dynamic-rwo` uses **Dynamic Block Storage Selection** (`WaitForFirstConsumer`, `type: dynamic`) to pick `hyperdisk-balanced` on Gen 4 or `pd-balanced` on Gen 3, and stamps **PV Disk-Topology Pinning** (`disk-type.gke.io/<disk-type>: "true"`) onto each PV so **Active Migration** never strands bound replicas across incompatible VM generations. See [TROUBLESHOOTING.md #4](TROUBLESHOOTING.md#4-cross-generation-stateful-storage-with-dynamic-rwo-pv-disk-topology-pinning-and-podantiaffinity) and [ADR-0004](docs/adr/0004-dynamic-rwo-and-pv-topology-pinning-across-vm-generations.md).
 
 ## Repository layout
 
-**`manifests/01-multi-arch/01-computeclass-fallback.yaml`.** Defines Stage 1 `ComputeClass/obtainable-compute` with `architectureTaintBehavior: NONE`, `optimizeRulePriority: true`, Priority #1 `n4a` (`AnyThenFail`), Priority #2 `n4d` (`spot: true`), and Priority #3 `n4` (`spot: false`).
-
-**`manifests/01-multi-arch/02-silicon-inspector.yaml`.** Defines `Namespace/compute-obtainability`, minimal Node-reader RBAC, and `Deployment/silicon-inspector` (`alpine:3.20`, 2 replicas, zero `tolerations`).
-
-**`manifests/01-multi-arch/03-computeclass-obtainable-arm.yaml`.** Defines Stage 2 `ComputeClass/obtainable-compute` with Priority #1 promoted to obtainable Google Axion Arm64 Spot (`n4a`, `spot: true`).
-
-**`Makefile`.** Provides `apply`, `unlock-arm`, `watch`, `status`, `logs`, `verify`, and `clean`.
-
-**`hack/watch.sh`.** Renders the single-pane terminal observer in live or `--once` mode.
-
-**`hack/test-stage1-fallback.sh`, `hack/verify-e2e.sh`, and `hack/test-docs.sh`.** Automated verification scripts for Stage 1 fallback, Stage 2 cross-architecture **Active Migration**, and documentation checks.
-
-**`TROUBLESHOOTING.md`, `GLOSSARY.md`, and `docs/adr/`.** Document the production edge cases, canonical domain terms, and architecture decision records `ADR-0001`, `ADR-0002`, and `ADR-0003`.
-
-**`BLOG-01-MULTI-ARCH.md`.** Full blog post with the engineering walkthrough and live demo.
+- **`manifests/01-multi-arch/`**: Stage 1 `01-computeclass-fallback.yaml`, `02-silicon-inspector.yaml`, and Stage 2 `03-computeclass-obtainable-arm.yaml` for Demo 01.
+- **`manifests/02-stateful-storage/`**: Stage 1 `01-computeclass-fallback.yaml`, `02-storage-inspector.yaml`, and Stage 2 `03-computeclass-obtainable-gen4.yaml` for Demo 02.
+- **`hack/`**: Terminal observers (`watch.sh`, `watch-stateful.sh`) and verification suites (`test-stage1-fallback.sh`, `verify-e2e.sh`, `test-stage1-stateful.sh`, `verify-stateful-e2e.sh`, `test-docs.sh`).
+- **`assets/`**: Live cluster demo recordings for Demo 01 (`01-multi-arch-demo.{mp4,gif}`) and Demo 02 (`02-stateful-storage-demo.{mp4,gif}`).
+- **`BLOG-01-MULTI-ARCH.md` & `BLOG-02-STATEFUL-STORAGE.md`**: Engineering blog posts for Demo 01 and Demo 02.
+- **`TROUBLESHOOTING.md`, `GLOSSARY.md`, & `docs/adr/`**: Production troubleshooting guide, canonical domain vocabulary, and `ADR-0001` through `ADR-0004`.
