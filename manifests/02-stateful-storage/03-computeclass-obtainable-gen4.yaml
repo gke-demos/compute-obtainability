@@ -1,0 +1,31 @@
+apiVersion: cloud.google.com/v1
+kind: ComputeClass
+metadata:
+  name: obtainable-stateful
+spec:
+  description: >-
+    Stage 2 Cross-Generation Stateful Obtainability Ladder with Priority #1
+    unlocked to obtainable Gen 4 (n4d Spot, Hyperdisk-only) alongside Gen 3
+    (n2d Spot, n2 On-Demand) paired with StorageClass/dynamic-rwo and PV
+    Disk-Topology Pinning.
+  nodePoolAutoCreation:
+    enabled: true
+  activeMigration:
+    optimizeRulePriority: true
+  autoscalingPolicy:
+    consolidationDelayMinutes: 1
+    consolidationThreshold: 70
+  priorities:
+    # Priority #1: Obtainable 4th-Gen AMD EPYC (n4d, Hyperdisk-only) Spot capacity.
+    # Newly scaled StatefulSet replicas provision hyperdisk-balanced volumes on n4d,
+    # while existing Gen 3 (n2d, pd-balanced) replicas remain safely pinned via
+    # PV Disk-Topology Pinning (use-allowed-disk-topology: "true").
+    - machineFamily: n4d
+      spot: true
+    # Priority #2: Secondary 3rd-Gen AMD EPYC (n2d, Persistent Disk) Spot capacity.
+    - machineFamily: n2d
+      spot: true
+    # Priority #3: Last-resort 3rd-Gen Intel (n2, Persistent Disk) On-Demand capacity.
+    - machineFamily: n2
+      spot: false
+  whenUnsatisfiable: DoNotScaleUp

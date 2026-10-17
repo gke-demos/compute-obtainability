@@ -66,12 +66,19 @@ spec:
       terminationGracePeriodSeconds: 5
       nodeSelector:
         cloud.google.com/compute-class: obtainable-stateful
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: storage-inspector
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: inspector
           image: alpine:3.20
           resources:
             requests:
-              cpu: 500m
+              cpu: 1000m
               memory: 512Mi
           env:
             - name: POD_NAME

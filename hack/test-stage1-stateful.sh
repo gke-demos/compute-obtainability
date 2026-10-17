@@ -53,6 +53,15 @@ assert node_selector == {"cloud.google.com/compute-class": "obtainable-stateful"
     f"Pod spec nodeSelector must select cloud.google.com/compute-class: obtainable-stateful, found: {node_selector}"
 )
 
+anti_aff = (
+    pod_spec.get("affinity", {})
+    .get("podAntiAffinity", {})
+    .get("requiredDuringSchedulingIgnoredDuringExecution", [])
+)
+assert any(t.get("topologyKey") == "kubernetes.io/hostname" for t in anti_aff), (
+    "StatefulSet Pod template must define required podAntiAffinity on kubernetes.io/hostname so replicas spread across nodes"
+)
+
 vcts = s_spec.get("volumeClaimTemplates", [])
 assert len(vcts) == 1, f"Expected 1 volumeClaimTemplate, got {len(vcts)}"
 vct = vcts[0]
